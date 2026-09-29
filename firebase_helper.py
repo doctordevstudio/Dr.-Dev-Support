@@ -1,31 +1,38 @@
 """
 firebase_helper.py — thin REST client for Firebase Realtime Database.
-Also provides log_event() which appends to /logs so that (per project
-requirement) every meaningful action is recorded permanently.
 """
 import datetime
 import time
 import requests
 import config
 
+
+def _now_ist_str():
+    return datetime.datetime.now(config.IST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def now_ist():
+    return _now_ist_str()
+
+
+def now_ts():
+    return int(time.time())
+
+
 TIMEOUT = 12
 
 
-def _firebase_url() -> str:
+def _firebase_url():
     return config.FIREBASE_URL.rstrip("/")
-
-
-def _secret() -> str:
-    return config.FIREBASE_SECRET
 
 
 def _url(path: str) -> str:
     base = f"{_firebase_url()}/{path}.json"
-    s = _secret()
+    s = config.FIREBASE_SECRET
     return f"{base}?auth={s}" if s else base
 
 
-def _enabled() -> bool:
+def _enabled():
     return bool(_firebase_url())
 
 
@@ -74,9 +81,7 @@ def post(path: str, data):
 
 
 def delete(path: str) -> bool:
-    """Hard delete. Intentionally NOT used for chat messages — see
-    soft_delete_message() in telegram_bot.py. Kept for admin/log housekeeping
-    only (e.g. clearing rate-limit counters, never for message history)."""
+    """Hard delete — intentionally unused for messages. Kept for housekeeping."""
     if not _enabled():
         return False
     try:
@@ -87,24 +92,11 @@ def delete(path: str) -> bool:
         return False
 
 
-def get_list(path: str) -> list:
-    data = get(path)
-    if not data or not isinstance(data, dict):
-        return []
-    return [{"_id": k, **v} if isinstance(v, dict) else {"_id": k, "value": v} for k, v in data.items()]
-
-
-# ── Activity log ──────────────────────────────────────────────────────────────
 def log_event(event_type: str, **fields):
-    """Append-only activity log at /logs/{ts_id}. Never overwritten or
-    deleted automatically. Use for every meaningful action:
-    message_in, message_out, admin_login, admin_login_failed, blocked,
-    unblocked, message_deleted, spam_detected, bot_error, etc.
-    """
     try:
         entry = {
             "type": event_type,
-            "time": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "time": _now_ist_str(),
             "ts": int(time.time()),
             **fields,
         }
