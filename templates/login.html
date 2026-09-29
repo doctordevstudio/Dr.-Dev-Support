@@ -4,39 +4,64 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Login — {{ panel_name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <style>
-:root[data-theme="dark"]{--bg:#0f1117;--card:#1e2535;--accent:#6c63ff;--text:#e2e8f0;--muted:#8892a4;--border:#2a3347;--red:#e74c3c}
-:root[data-theme="light"]{--bg:#f0f2f5;--card:#ffffff;--accent:#6c63ff;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;--red:#dc2626}
+:root[data-theme="dark"]{--bg:#0a0d14;--card:#141a25;--card2:#1b2230;--text:#eef2f9;--muted:#8494b0;
+  --border:#212a3b;--accent:#7c6cff;--accent2:#ff5c9c;--red:#ff4d5e;
+  --grad:linear-gradient(135deg,#7c6cff 0%,#ff5c9c 100%)}
+:root[data-theme="light"]{--bg:#eef1f7;--card:#ffffff;--card2:#f4f6fb;--text:#131a26;--muted:#5b6780;
+  --border:#e2e6ef;--accent:#6c5ce7;--accent2:#e91e63;--red:#dc2626;
+  --grad:linear-gradient(135deg,#6c5ce7 0%,#e91e63 100%)}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);
-  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:16px;
-  padding:36px 32px;width:100%;max-width:380px;box-shadow:0 8px 40px rgba(0,0,0,.3)}
-.logo{text-align:center;margin-bottom:28px}
-.logo h1{font-size:1.5rem;font-weight:700;background:linear-gradient(135deg,#6c63ff,#4cc9f0);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
-.logo p{font-size:.8rem;color:var(--muted)}
-.form-group{margin-bottom:16px}
-.form-label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:6px;font-weight:500}
-.form-control{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);
-  color:var(--text);padding:11px 14px;border-radius:10px;font-size:.88rem}
-.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(108,99,255,.12)}
-.btn{width:100%;padding:12px;background:linear-gradient(135deg,#6c63ff,#4cc9f0);
-  color:#fff;border:none;border-radius:10px;font-size:.9rem;font-weight:600;cursor:pointer;margin-top:8px}
-.btn:hover{opacity:.9}
-.alert{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:.82rem;
-  background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.25);color:var(--red);display:flex;align-items:center;gap:8px}
-.theme-toggle{position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--border);
-  border-radius:8px;padding:8px 12px;cursor:pointer;color:var(--muted)}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+  position:relative;overflow:hidden}
+body::before,body::after{content:'';position:absolute;border-radius:50%;filter:blur(120px);opacity:.35;pointer-events:none}
+body::before{width:500px;height:500px;background:#7c6cff;top:-180px;left:-180px;animation:float1 18s ease-in-out infinite}
+body::after{width:500px;height:500px;background:#ff5c9c;bottom:-180px;right:-180px;animation:float2 20s ease-in-out infinite}
+@keyframes float1{0%,100%{transform:translate(0,0)}50%{transform:translate(80px,60px)}}
+@keyframes float2{0%,100%{transform:translate(0,0)}50%{transform:translate(-80px,-60px)}}
+.card{background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:20px;
+  padding:40px 34px;width:100%;max-width:400px;box-shadow:0 24px 80px rgba(0,0,0,.5);
+  position:relative;z-index:1;animation:cardIn .6s cubic-bezier(.4,0,.2,1)}
+@keyframes cardIn{from{opacity:0;transform:translateY(20px) scale(.96)}to{opacity:1;transform:none}}
+.logo{text-align:center;margin-bottom:32px}
+.logo .icon{font-size:2.4rem;display:block;margin-bottom:12px;animation:wave 2s ease-in-out infinite}
+@keyframes wave{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+.logo h1{font-size:1.55rem;font-weight:800;letter-spacing:-.02em;margin-bottom:6px;
+  background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.logo p{font-size:.78rem;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+.form-group{margin-bottom:18px;position:relative}
+.form-label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.08em}
+.form-control{width:100%;background:var(--card2);border:1px solid var(--border);
+  color:var(--text);padding:13px 14px 13px 42px;border-radius:12px;font-size:.88rem;
+  font-family:inherit;transition:all .2s}
+.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,108,255,.15)}
+.form-group i.field-icon{position:absolute;left:14px;top:38px;color:var(--muted);font-size:.85rem}
+.btn{width:100%;padding:14px;background:var(--grad);color:#fff;border:none;border-radius:12px;
+  font-size:.9rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit;
+  box-shadow:0 8px 24px rgba(124,108,255,.35);letter-spacing:.02em}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(124,108,255,.5)}
+.btn:active{transform:translateY(0)}
+.alert{padding:11px 14px;border-radius:10px;margin-bottom:18px;font-size:.82rem;
+  background:rgba(255,77,94,.12);border:1px solid rgba(255,77,94,.25);color:var(--red);
+  display:flex;align-items:center;gap:8px;animation:cardIn .3s}
+.theme-toggle{position:fixed;top:20px;right:20px;background:var(--card);border:1px solid var(--border);
+  border-radius:10px;padding:9px 13px;cursor:pointer;color:var(--muted);z-index:2;font-size:.9rem}
+.footnote{text-align:center;margin-top:22px;font-size:.72rem;color:var(--muted)}
 </style>
 </head>
 <body>
 <button class="theme-toggle" onclick="toggleTheme()"><i class="fa-solid fa-sun" id="ti"></i></button>
 <div class="card">
   <div class="logo">
-    <h1>🎧 {{ panel_name }}</h1>
-    <p>Support Admin — Secure Login</p>
+    <span class="icon">🎧</span>
+    <h1>{{ panel_name }}</h1>
+    <p>Secure Admin Access</p>
   </div>
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat,msg in messages %}
@@ -45,15 +70,18 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   {% endwith %}
   <form method="POST">
     <div class="form-group">
-      <label class="form-label"><i class="fa-solid fa-user"></i> Username</label>
+      <label class="form-label">Username</label>
+      <i class="fa-solid fa-user field-icon"></i>
       <input type="text" name="username" class="form-control" required autocomplete="username" autofocus/>
     </div>
     <div class="form-group">
-      <label class="form-label"><i class="fa-solid fa-lock"></i> Password</label>
+      <label class="form-label">Password</label>
+      <i class="fa-solid fa-lock field-icon"></i>
       <input type="password" name="password" class="form-control" required autocomplete="current-password"/>
     </div>
-    <button type="submit" class="btn"><i class="fa-solid fa-right-to-bracket"></i> Login</button>
+    <button type="submit" class="btn"><i class="fa-solid fa-right-to-bracket"></i>&nbsp; Sign In</button>
   </form>
+  <div class="footnote">Authorized personnel only</div>
 </div>
 <script>
 const h=document.documentElement;
