@@ -2,28 +2,33 @@
 {% block title %}Chat — {{ meta.user_name or cid }}{% endblock %}
 
 {% block page_title %}
-  <div style="display:flex;align-items:center;gap:10px">
-    <a href="{{ url_for('chats') }}" style="color:var(--muted);text-decoration:none">
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="{{ url_for('chats') }}" data-nav style="color:var(--muted);text-decoration:none;
+       padding:6px;border-radius:8px;transition:all .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background=''">
       <i class="fa-solid fa-arrow-left"></i>
     </a>
-    <div id="avatarBtn" onclick="openModal('profileModal')" style="cursor:pointer;flex-shrink:0">
-      {% if meta.photo_url %}
-        <img src="{{ meta.photo_url }}" alt="avatar"
-             style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)"/>
+    <div onclick="openModal('profileModal')" style="cursor:pointer;flex-shrink:0">
+      {% if meta.photo_file_id %}
+        <img src="{{ url_for('avatar', cid=cid) }}" alt="avatar"
+             style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);
+             box-shadow:0 2px 10px rgba(124,108,255,.4)"/>
       {% else %}
-        <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent3));
-                    display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:.9rem">
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--grad);
+             display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:.95rem;
+             box-shadow:0 2px 10px rgba(124,108,255,.4)">
           {{ (meta.user_name or '?')[0]|upper }}
         </div>
       {% endif %}
     </div>
     <div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="font-size:.95rem;font-weight:600">{{ meta.user_name or cid }}</span>
-        {% if meta.blocked %}<span style="font-size:.65rem;background:#ff4444;color:#fff;padding:1px 7px;border-radius:20px;font-weight:600">BLOCKED</span>{% endif %}
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:.98rem;font-weight:700">{{ meta.user_name or cid }}</span>
+        {% if meta.blocked %}<span style="font-size:.62rem;background:var(--red);color:#fff;
+            padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:.04em">BLOCKED</span>{% endif %}
       </div>
-      <div style="font-size:.7rem;color:var(--muted)">
-        {% if meta.username %}@{{ meta.username }} · {% endif %}<code style="font-size:.7rem">{{ cid }}</code>
+      <div style="font-size:.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
+        {% if meta.username %}<span>@{{ meta.username }}</span><span style="opacity:.4">·</span>{% endif %}
+        <code style="font-size:.7rem">{{ cid }}</code>
       </div>
     </div>
   </div>
@@ -31,79 +36,159 @@
 
 {% block extra_head %}
 <style>
-.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 130px);max-width:820px;margin:0 auto}
-.chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;
-  background:var(--bg);border-radius:var(--radius);border:1px solid var(--border)}
-.bubble{max-width:72%;padding:10px 14px;border-radius:16px;font-size:.85rem;line-height:1.5;position:relative;word-break:break-word}
-.bubble.user{background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:4px;align-self:flex-start;color:var(--text)}
-.bubble.admin{background:linear-gradient(135deg,var(--accent),#5a52e0);color:#fff;border-bottom-right-radius:4px;align-self:flex-end}
-.bubble.deleted{background:transparent;border:1px dashed var(--border);color:var(--muted);font-style:italic}
-.bubble-wrap{display:flex;flex-direction:column}
+.chat-shell{display:flex;flex-direction:column;height:calc(100vh - 130px);max-width:900px;margin:0 auto}
+.chat-messages{
+  flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:12px;
+  background:linear-gradient(180deg,var(--bg2) 0%,var(--bg) 100%);
+  border-radius:var(--radius);border:1px solid var(--border);position:relative;scroll-behavior:smooth;
+}
+.chat-messages::before{
+  content:'';position:absolute;inset:0;pointer-events:none;border-radius:var(--radius);
+  background-image:radial-gradient(circle at 20% 30%,rgba(124,108,255,.05) 0,transparent 40%),
+                   radial-gradient(circle at 80% 70%,rgba(255,92,156,.05) 0,transparent 40%);
+}
+.bubble-wrap{display:flex;flex-direction:column;position:relative;animation:msgIn .35s cubic-bezier(.4,0,.2,1)}
 .bubble-wrap.admin{align-items:flex-end}
 .bubble-wrap.user{align-items:flex-start}
-.bubble-meta{font-size:.65rem;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:4px}
+@keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+.bubble{max-width:74%;padding:11px 15px;border-radius:18px;font-size:.87rem;line-height:1.55;
+  word-break:break-word;position:relative;transition:all .2s}
+.bubble.user{background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:5px;color:var(--text);
+  box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.bubble.admin{background:var(--grad);color:#fff;border-bottom-right-radius:5px;
+  box-shadow:0 4px 16px rgba(124,108,255,.35)}
+.bubble.deleted{background:transparent;border:1px dashed var(--border);color:var(--muted);
+  font-style:italic;box-shadow:none}
+.bubble-meta{font-size:.66rem;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:5px}
 .bubble-wrap.admin .bubble-meta{justify-content:flex-end}
-.bubble img{max-width:240px;border-radius:10px;display:block;margin-bottom:4px;cursor:pointer}
-.bubble video{max-width:260px;border-radius:10px;display:block;margin-bottom:4px}
-.bubble-doc-link{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;
-  background:rgba(255,255,255,.12);color:inherit;text-decoration:none;font-size:.8rem;font-weight:500;max-width:240px;margin-bottom:4px}
-.bubble.user .bubble-doc-link{background:rgba(0,0,0,.06)}
-.bubble-actions{position:absolute;top:-32px;right:0;background:var(--card);border:1px solid var(--border);border-radius:8px;
-  padding:3px 6px;display:none;gap:4px;white-space:nowrap;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-.bubble-wrap.user .bubble-actions{left:0;right:auto}
-.chat-input-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:10px}
-.chat-input-row{display:flex;gap:8px;align-items:flex-end}
+.bubble img,.bubble video{max-width:260px;border-radius:12px;display:block;margin-bottom:5px}
+.bubble img{cursor:zoom-in;transition:transform .2s}
+.bubble img:hover{transform:scale(1.02)}
+.bubble-doc-link{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;
+  background:rgba(255,255,255,.14);color:inherit;text-decoration:none;font-size:.82rem;font-weight:500;
+  max-width:260px;margin-bottom:5px;transition:all .18s;border:1px solid rgba(255,255,255,.1)}
+.bubble.user .bubble-doc-link{background:var(--card3);border-color:var(--border)}
+.bubble-doc-link:hover{transform:translateX(2px);background:rgba(255,255,255,.24)}
+.bubble.user .bubble-doc-link:hover{background:var(--card2)}
+.bubble-actions{position:absolute;top:-36px;background:var(--card);border:1px solid var(--border);
+  border-radius:10px;padding:4px 7px;display:none;gap:4px;white-space:nowrap;z-index:10;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);animation:popIn .15s}
+.bubble-wrap.admin .bubble-actions{right:0}
+.bubble-wrap.user .bubble-actions{left:0}
+@keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.94)}to{opacity:1;transform:none}}
+
+/* Lazy media placeholder */
+.media-placeholder{
+  display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:12px;
+  background:rgba(0,0,0,.18);border:1px dashed rgba(255,255,255,.2);cursor:pointer;
+  font-size:.8rem;font-weight:500;max-width:280px;transition:all .18s;margin-bottom:5px;color:inherit}
+.bubble.user .media-placeholder{background:var(--card3);border-color:var(--border)}
+.media-placeholder:hover{background:rgba(124,108,255,.2);border-color:var(--accent);transform:translateY(-1px)}
+.media-placeholder i{font-size:1.1rem}
+
+/* Input bar */
+.chat-input-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px;margin-top:12px;box-shadow:var(--shadow)}
 .chat-textarea{flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);
-  padding:9px 13px;border-radius:10px;font-size:.84rem;resize:none;min-height:42px;max-height:140px;font-family:inherit}
-.chat-textarea:focus{outline:none;border-color:var(--accent)}
-.btn-attach{background:var(--card2);border:1px solid var(--border);color:var(--muted);width:42px;height:42px;
-  border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
-.btn-attach:hover{border-color:var(--accent);color:var(--accent)}
-.file-preview-card{display:none;align-items:center;gap:10px;padding:9px 12px;margin-bottom:8px;
-  background:var(--card2);border:1px solid var(--accent);border-radius:10px}
-.file-preview-thumb{width:52px;height:52px;border-radius:8px;object-fit:cover;flex-shrink:0}
-.file-preview-icon{width:52px;height:52px;border-radius:8px;flex-shrink:0;font-size:1.5rem;
-  display:flex;align-items:center;justify-content:center;background:rgba(108,99,255,.12)}
+  padding:11px 14px;border-radius:12px;font-size:.86rem;resize:none;min-height:44px;max-height:150px;
+  font-family:inherit;transition:all .18s}
+.chat-textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,108,255,.12)}
+.chat-input-row{display:flex;gap:9px;align-items:flex-end}
+.btn-attach{background:var(--card2);border:1px solid var(--border);color:var(--muted);width:44px;height:44px;
+  border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+  transition:all .18s}
+.btn-attach:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(124,108,255,.25)}
+.btn-send{background:var(--grad);border:none;color:#fff;width:auto;padding:0 20px;height:44px;
+  border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
+  flex-shrink:0;font-weight:600;font-size:.82rem;transition:all .18s;font-family:inherit;
+  box-shadow:0 4px 14px rgba(124,108,255,.4)}
+.btn-send:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(124,108,255,.55)}
+.btn-send:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+/* File preview */
+.file-preview-card{display:none;align-items:center;gap:12px;padding:11px 14px;margin-bottom:10px;
+  background:var(--card2);border:1px solid var(--accent);border-radius:12px;animation:msgIn .25s}
+.file-preview-thumb{width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0}
+.file-preview-icon{width:56px;height:56px;border-radius:10px;flex-shrink:0;font-size:1.6rem;
+  display:flex;align-items:center;justify-content:center;background:rgba(124,108,255,.15)}
 .file-preview-info{flex:1;min-width:0}
-.file-preview-name{font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.file-preview-size{font-size:.7rem;color:var(--muted);margin-top:2px}
-.file-preview-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem}
-.upload-progress{display:none;height:3px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden}
-.upload-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent3));width:0%;transition:width .3s}
-.date-sep{text-align:center;color:var(--muted);font-size:.7rem;margin:8px 0;display:flex;align-items:center;gap:8px}
+.file-preview-name{font-size:.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-preview-size{font-size:.72rem;color:var(--muted);margin-top:3px}
+.file-preview-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;
+  padding:4px;border-radius:6px;transition:all .15s}
+.file-preview-remove:hover{background:var(--red);color:#fff}
+.upload-progress{display:none;height:4px;background:var(--card2);border-radius:2px;margin-top:8px;overflow:hidden}
+.upload-progress-bar{height:100%;background:var(--grad);width:0%;transition:width .3s;border-radius:2px}
+
+.date-sep{text-align:center;color:var(--muted);font-size:.72rem;margin:10px 0;display:flex;
+  align-items:center;gap:10px;font-weight:500}
 .date-sep::before,.date-sep::after{content:'';flex:1;height:1px;background:var(--border)}
-.profile-modal-inner{max-width:360px;padding:0;overflow:hidden;border-radius:var(--radius)}
-.profile-cover{height:120px;background:linear-gradient(135deg,var(--accent),var(--accent3));position:relative}
-.profile-avatar-wrap{position:absolute;bottom:-40px;left:50%;transform:translateX(-50%)}
-.profile-avatar-img{width:82px;height:82px;border-radius:50%;object-fit:cover;border:3px solid var(--card)}
-.profile-avatar-init{width:82px;height:82px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent3));
-  display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;border:3px solid var(--card)}
-.profile-body{padding:52px 24px 24px;text-align:center}
-.profile-name{font-size:1.1rem;font-weight:700}
-.profile-username{font-size:.8rem;color:var(--muted);margin-bottom:8px}
-.profile-meta-row{display:flex;justify-content:center;gap:20px;margin:14px 0 16px}
-.profile-meta-label{font-size:.65rem;color:var(--muted);text-transform:uppercase}
-.profile-meta-val{font-size:.82rem;font-weight:600;margin-top:2px}
-.profile-actions{display:flex;gap:10px;justify-content:center}
-.blocked-banner{background:#ff4444;color:#fff;text-align:center;padding:8px 16px;border-radius:var(--radius);font-size:.82rem;margin-bottom:8px}
+
+.new-msg-flash{animation:flash 1.5s ease}
+@keyframes flash{0%,100%{background:transparent}30%{background:rgba(124,108,255,.15)}}
+
+.typing-indicator{display:inline-flex;gap:4px;padding:11px 15px;background:var(--card2);
+  border:1px solid var(--border);border-radius:18px;border-bottom-left-radius:5px;align-self:flex-start}
+.typing-indicator span{width:7px;height:7px;border-radius:50%;background:var(--muted);
+  animation:typing 1.4s infinite}
+.typing-indicator span:nth-child(2){animation-delay:.2s}
+.typing-indicator span:nth-child(3){animation-delay:.4s}
+@keyframes typing{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
+
+.blocked-banner{background:linear-gradient(90deg,var(--red),#c1303e);color:#fff;
+  text-align:center;padding:11px 18px;border-radius:var(--radius);font-size:.82rem;margin-bottom:10px;
+  font-weight:600;box-shadow:0 4px 14px rgba(255,77,94,.35)}
+
+.load-more-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);
+  padding:8px 20px;border-radius:99px;font-size:.76rem;cursor:pointer;margin:6px auto;display:block;
+  transition:all .18s;font-family:inherit;font-weight:600}
+.load-more-btn:hover{background:var(--card3);color:var(--text);border-color:var(--accent)}
+
+/* Profile modal */
+.profile-modal-inner{max-width:380px;padding:0;overflow:hidden}
+.profile-cover{height:130px;background:var(--grad);position:relative}
+.profile-cover::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(circle at 30% 40%,rgba(255,255,255,.25),transparent 60%)}
+.profile-avatar-wrap{position:absolute;bottom:-42px;left:50%;transform:translateX(-50%);z-index:2}
+.profile-avatar-img{width:88px;height:88px;border-radius:50%;object-fit:cover;border:4px solid var(--card)}
+.profile-avatar-init{width:88px;height:88px;border-radius:50%;background:var(--grad-2);
+  display:flex;align-items:center;justify-content:center;font-size:2.2rem;font-weight:700;color:#fff;
+  border:4px solid var(--card)}
+.profile-body{padding:56px 26px 26px;text-align:center}
+.profile-name{font-size:1.15rem;font-weight:800;letter-spacing:-.01em}
+.profile-username{font-size:.82rem;color:var(--muted);margin-top:3px}
+.profile-meta-row{display:flex;justify-content:center;gap:22px;margin:18px 0 20px}
+.profile-meta-label{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+.profile-meta-val{font-size:.85rem;font-weight:700;margin-top:4px}
+.profile-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="chat-wrap">
+<div class="chat-shell">
   {% if meta.blocked %}
-    <div class="blocked-banner">🚫 This user is blocked — they cannot send messages or receive replies.</div>
+    <div class="blocked-banner">🚫 This user is blocked — they can't send messages or receive replies.</div>
   {% endif %}
 
-  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
     {% if meta.blocked %}
-      <button class="btn btn-secondary btn-sm" onclick="setBlock(false)"><i class="fa-solid fa-lock-open"></i> Unblock</button>
+      <button class="btn btn-secondary btn-sm" onclick="setBlock(false)">
+        <i class="fa-solid fa-lock-open"></i> Unblock</button>
     {% else %}
-      <button class="btn btn-danger btn-sm" onclick="setBlock(true)"><i class="fa-solid fa-ban"></i> Block User</button>
+      <button class="btn btn-danger btn-sm" onclick="setBlock(true)">
+        <i class="fa-solid fa-ban"></i> Block User</button>
     {% endif %}
   </div>
 
   <div class="chat-messages" id="chatBox">
+    <div id="loadMoreWrap" style="text-align:center">
+      {% if has_more %}
+        <button class="load-more-btn" onclick="loadOlder()">
+          <i class="fa-solid fa-arrow-up"></i> Load earlier messages</button>
+      {% endif %}
+    </div>
+    <div id="msgsContainer">
     {% set last_date = namespace(val='') %}
     {% for m in messages %}
       {% set msg_date = (m.time or '')[:10] %}
@@ -112,61 +197,64 @@
         {% set last_date.val = msg_date %}
       {% endif %}
       {% set is_admin = m.from == 'admin' %}
-      <div class="bubble-wrap {{ 'admin' if is_admin else 'user' }}" id="msg_{{ m.msg_id }}" style="position:relative">
+      <div class="bubble-wrap {{ 'admin' if is_admin else 'user' }}"
+           id="msg_{{ m.msg_id }}" data-mid="{{ m.msg_id }}" data-ts="{{ m.ts or 0 }}">
 
         {% if not m.deleted %}
         <div class="bubble-actions">
           {% if is_admin %}
-            <button class="btn-ghost" style="font-size:.72rem" onclick="editMsg('{{ m.msg_id }}','{{ (m.text or '')|replace("'","\\'") }}')">
-              <i class="fa-solid fa-pen"></i>
-            </button>
+            <button class="btn-ghost" style="font-size:.72rem" title="Edit"
+              onclick="editMsg('{{ m.msg_id }}', {{ (m.text or '')|tojson }})">
+              <i class="fa-solid fa-pen"></i></button>
           {% endif %}
-          <button class="btn-ghost" style="font-size:.72rem;color:var(--red)" onclick="deleteMsg('{{ m.msg_id }}')">
-            <i class="fa-solid fa-trash"></i>
-          </button>
+          <button class="btn-ghost" style="font-size:.72rem;color:var(--red)" title="Delete"
+            onclick="deleteMsg('{{ m.msg_id }}')">
+            <i class="fa-solid fa-trash"></i></button>
         </div>
         {% endif %}
 
         {% if m.deleted %}
           <div class="bubble {{ 'admin' if is_admin else 'user' }} deleted">
-            <i class="fa-solid fa-ban" style="margin-right:4px"></i> This message was deleted
+            <i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted
           </div>
         {% else %}
           <div class="bubble {{ 'admin' if is_admin else 'user' }}">
-            {% if m.type == 'photo' %}
-              {% if m.file_id %}<img src="{{ url_for('chat_file_download', cid=cid, mid=m.msg_id) }}" alt="photo" onclick="window.open(this.src,'_blank')"/>{% endif %}
-              {% if m.text %}<div>{{ m.text }}</div>{% endif %}
-            {% elif m.type == 'video' %}
-              {% if m.file_id %}<video src="{{ url_for('chat_file_download', cid=cid, mid=m.msg_id) }}" controls preload="metadata"></video>{% endif %}
-              {% if m.text %}<div>{{ m.text }}</div>{% endif %}
-            {% elif m.type == 'document' %}
-              {% if m.file_id %}
-                <a class="bubble-doc-link" href="{{ url_for('chat_file_download', cid=cid, mid=m.msg_id) }}" download>
-                  <span style="font-size:1.3rem">📄</span>
-                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">{{ m.file_name or 'Download file' }}</span>
-                  <i class="fa-solid fa-download" style="font-size:.7rem;opacity:.7"></i>
-                </a>
-              {% endif %}
-              {% if m.text %}<div>{{ m.text }}</div>{% endif %}
-            {% else %}
-              {{ m.text or '' }}
+            {% if m.type == 'photo' and m.file_id %}
+              <div class="media-placeholder" onclick="loadMedia(this,'image','{{ m.msg_id }}')">
+                <i class="fa-solid fa-image"></i> Load image
+              </div>
+            {% elif m.type == 'video' and m.file_id %}
+              <div class="media-placeholder" onclick="loadMedia(this,'video','{{ m.msg_id }}')">
+                <i class="fa-solid fa-video"></i> Load video
+              </div>
+            {% elif m.type == 'document' and m.file_id %}
+              <a class="bubble-doc-link" href="{{ url_for('chat_file_download', cid=cid, mid=m.msg_id) }}" download>
+                <span style="font-size:1.4rem">📄</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">
+                  {{ m.file_name or 'Download file' }}</span>
+                <i class="fa-solid fa-download" style="font-size:.72rem;opacity:.75"></i>
+              </a>
             {% endif %}
-            {% if m.edited %}<span style="font-size:.65rem;opacity:.55"> (edited)</span>{% endif %}
+            {% if m.text %}<div>{{ m.text }}</div>{% endif %}
+            {% if m.edited %}<span style="font-size:.66rem;opacity:.6">(edited)</span>{% endif %}
           </div>
         {% endif %}
 
         <div class="bubble-meta">
-          {{ (m.time or '')[:16] }}
+          {{ (m.time or '') }}
           {% if is_admin %}
-            <span data-tick="{{ m.msg_id }}" style="color:{{ 'var(--accent3)' if m.read else 'inherit' }}">{{ '✓✓' if m.read else '✓' }}</span>
+            <span data-tick="{{ m.msg_id }}" style="color:{{ 'var(--accent3)' if m.read else 'inherit' }}">
+              {{ '✓✓' if m.read else '✓' }}</span>
           {% endif %}
         </div>
       </div>
     {% else %}
       <div class="empty-state" style="flex:1;justify-content:center">
         <i class="fa-solid fa-comments"></i><p>No messages yet</p>
+        <p class="sub">Send the first message below</p>
       </div>
     {% endfor %}
+    </div>
   </div>
 
   <div class="chat-input-bar">
@@ -180,34 +268,43 @@
       <button class="file-preview-remove" onclick="clearFile()">✕</button>
     </div>
     <div class="upload-progress" id="uploadProgress"><div class="upload-progress-bar" id="uploadProgressBar"></div></div>
-    <input type="file" id="fileInput" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" style="display:none" onchange="onFileSelected(this)"/>
+    <input type="file" id="fileInput"
+      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" style="display:none"
+      onchange="onFileSelected(this)"/>
     <div class="chat-input-row">
-      <button class="btn-attach" onclick="document.getElementById('fileInput').click()"><i class="fa-solid fa-paperclip"></i></button>
-      <textarea id="msgInput" class="chat-textarea" rows="1" placeholder="Type a message… (Enter to send)"
-                onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-      <button class="btn btn-primary" onclick="sendMsg()" style="height:42px;padding:0 18px;flex-shrink:0"><i class="fa-solid fa-paper-plane"></i></button>
+      <button class="btn-attach" onclick="document.getElementById('fileInput').click()" title="Attach file">
+        <i class="fa-solid fa-paperclip"></i></button>
+      <textarea id="msgInput" class="chat-textarea" rows="1"
+        placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="btn-send" id="sendBtn" onclick="sendMsg()">
+        <i class="fa-solid fa-paper-plane"></i> Send</button>
     </div>
-    <div id="sendStatus" style="font-size:.72rem;color:var(--muted);margin-top:6px;min-height:16px"></div>
+    <div id="sendStatus" style="font-size:.72rem;color:var(--muted);margin-top:8px;min-height:14px"></div>
   </div>
 </div>
 
 <div class="modal-overlay" id="editModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('editModal')"><i class="fa-solid fa-xmark"></i></button>
-    <h3 style="margin-bottom:14px">✏️ Edit Message</h3>
+    <h3 style="margin-bottom:16px;font-weight:700;font-size:1.05rem">✏️ Edit Message</h3>
     <input type="hidden" id="editMid"/>
     <div class="form-group"><textarea id="editText" class="form-control" rows="4"></textarea></div>
-    <button class="btn btn-primary" style="width:100%" onclick="submitEdit()"><i class="fa-solid fa-save"></i> Save</button>
+    <button class="btn btn-primary" style="width:100%" onclick="submitEdit()">
+      <i class="fa-solid fa-save"></i> Save Changes</button>
   </div>
 </div>
 
 <div class="modal-overlay" id="profileModal">
   <div class="modal profile-modal-inner">
-    <button class="modal-close" onclick="closeModal('profileModal')" style="position:absolute;top:10px;right:10px;z-index:5"><i class="fa-solid fa-xmark"></i></button>
+    <button class="modal-close" onclick="closeModal('profileModal')"
+      style="position:absolute;top:12px;right:12px;z-index:5;background:rgba(0,0,0,.3)">
+      <i class="fa-solid fa-xmark"></i></button>
     <div class="profile-cover">
       <div class="profile-avatar-wrap">
-        {% if meta.photo_url %}
-          <img class="profile-avatar-img" src="{{ meta.photo_url }}" alt="avatar" onclick="window.open(this.src,'_blank')" style="cursor:zoom-in"/>
+        {% if meta.photo_file_id %}
+          <img class="profile-avatar-img" src="{{ url_for('avatar', cid=cid) }}" alt="avatar"
+               onclick="window.open(this.src,'_blank')" style="cursor:zoom-in"/>
         {% else %}
           <div class="profile-avatar-init">{{ (meta.user_name or '?')[0]|upper }}</div>
         {% endif %}
@@ -217,18 +314,24 @@
       <div class="profile-name">{{ meta.user_name or 'Unknown' }}</div>
       {% if meta.username %}<div class="profile-username">@{{ meta.username }}</div>{% endif %}
       <div class="profile-meta-row">
-        <div><div class="profile-meta-label">Chat ID</div><div class="profile-meta-val"><code style="font-size:.78rem">{{ cid }}</code></div></div>
-        {% if meta.started_at %}<div><div class="profile-meta-label">Joined</div><div class="profile-meta-val">{{ (meta.started_at or '')[:10] }}</div></div>{% endif %}
-        <div><div class="profile-meta-label">Messages</div><div class="profile-meta-val">{{ messages|length }}</div></div>
+        <div><div class="profile-meta-label">Chat ID</div>
+          <div class="profile-meta-val"><code style="font-size:.78rem">{{ cid }}</code></div></div>
+        {% if meta.started_at %}<div><div class="profile-meta-label">Joined</div>
+          <div class="profile-meta-val">{{ (meta.started_at or '')[:10] }}</div></div>{% endif %}
+        <div><div class="profile-meta-label">Messages</div>
+          <div class="profile-meta-val" id="msgCount">{{ total }}</div></div>
       </div>
       <div class="profile-actions">
         {% if meta.blocked %}
-          <button class="btn btn-secondary btn-sm" onclick="setBlock(false);closeModal('profileModal')"><i class="fa-solid fa-lock-open"></i> Unblock</button>
+          <button class="btn btn-secondary btn-sm" onclick="setBlock(false);closeModal('profileModal')">
+            <i class="fa-solid fa-lock-open"></i> Unblock</button>
         {% else %}
-          <button class="btn btn-danger btn-sm" onclick="setBlock(true);closeModal('profileModal')"><i class="fa-solid fa-ban"></i> Block User</button>
+          <button class="btn btn-danger btn-sm" onclick="setBlock(true);closeModal('profileModal')">
+            <i class="fa-solid fa-ban"></i> Block User</button>
         {% endif %}
         {% if meta.username %}
-          <a class="btn btn-secondary btn-sm" href="https://t.me/{{ meta.username }}" target="_blank"><i class="fa-brands fa-telegram"></i> Open Telegram</a>
+          <a class="btn btn-secondary btn-sm" href="https://t.me/{{ meta.username }}" target="_blank">
+            <i class="fa-brands fa-telegram"></i> Open Telegram</a>
         {% endif %}
       </div>
     </div>
@@ -239,16 +342,24 @@
 {% block scripts %}
 <script>
 const CID = "{{ cid }}";
-let lastMsgCount = {{ messages|length }};
+let lastTs = {{ (messages[-1].ts if messages else 0) or 0 }};
+let oldestTs = {{ (messages[0].ts if messages else 0) or 0 }};
+let hasMore = {{ 'true' if has_more else 'false' }};
 let selectedFile = null;
+let isSending = false;
 
 const box = document.getElementById('chatBox');
+const container = document.getElementById('msgsContainer');
 box.scrollTop = box.scrollHeight;
 
-function autoResize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,140)+'px'; }
-function handleKey(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); } }
+function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,150)+'px';}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}}
 
-function fmtSize(b){ if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function fmtSize(b){
+  if(b<1024) return b+' B';
+  if(b<1048576) return (b/1024).toFixed(1)+' KB';
+  return (b/1048576).toFixed(1)+' MB';
+}
 function getFileIcon(mime){
   if(mime.startsWith('image/')) return '🖼️';
   if(mime.startsWith('video/')) return '🎬';
@@ -259,18 +370,31 @@ function getFileIcon(mime){
   return '📎';
 }
 function onFileSelected(input){
-  const file = input.files[0];
+  const file=input.files[0];
   if(!file) return;
-  selectedFile = file;
-  const card=document.getElementById('filePreviewCard'), icon=document.getElementById('filePreviewIcon'),
-        thumb=document.getElementById('filePreviewThumb'), name=document.getElementById('filePreviewName'),
+  const maxMB = {{ max_upload_mb }};
+  if(file.size > maxMB*1024*1024){
+    toast('File exceeds '+maxMB+'MB limit','err');
+    input.value=''; return;
+  }
+  selectedFile=file;
+  const card=document.getElementById('filePreviewCard'),
+        icon=document.getElementById('filePreviewIcon'),
+        thumb=document.getElementById('filePreviewThumb'),
+        name=document.getElementById('filePreviewName'),
         size=document.getElementById('filePreviewSize');
-  name.textContent=file.name; size.textContent=fmtSize(file.size); card.style.display='flex';
+  name.textContent=file.name;
+  size.textContent=fmtSize(file.size);
+  card.style.display='flex';
   if(file.type.startsWith('image/')){
     const reader=new FileReader();
-    reader.onload=e=>{ thumb.src=e.target.result; thumb.style.display='block'; icon.style.display='none'; };
+    reader.onload=e=>{thumb.src=e.target.result;thumb.style.display='block';icon.style.display='none';};
     reader.readAsDataURL(file);
-  } else { thumb.style.display='none'; icon.style.display='flex'; icon.textContent=getFileIcon(file.type); }
+  } else {
+    thumb.style.display='none';
+    icon.style.display='flex';
+    icon.textContent=getFileIcon(file.type);
+  }
 }
 function clearFile(){
   selectedFile=null;
@@ -280,100 +404,300 @@ function clearFile(){
   document.getElementById('filePreviewIcon').style.display='flex';
 }
 function setProgress(pct){
-  const bar=document.getElementById('uploadProgress'), fill=document.getElementById('uploadProgressBar');
-  if(pct===null){ bar.style.display='none'; fill.style.width='0%'; }
-  else { bar.style.display='block'; fill.style.width=pct+'%'; }
+  const bar=document.getElementById('uploadProgress'),
+        fill=document.getElementById('uploadProgressBar');
+  if(pct===null){bar.style.display='none';fill.style.width='0%';}
+  else {bar.style.display='block';fill.style.width=pct+'%';}
 }
+
 async function sendMsg(){
-  const text = document.getElementById('msgInput').value.trim();
-  const status = document.getElementById('sendStatus');
+  if(isSending) return;
+  const text=document.getElementById('msgInput').value.trim();
+  const status=document.getElementById('sendStatus');
   if(!text && !selectedFile) return;
-  if(document.querySelector('.blocked-banner')){ status.textContent='🚫 User is blocked — unblock first.'; return; }
-  status.textContent = '⏳ Sending…';
-  const fd = new FormData();
-  fd.append('text', text);
+  if(document.querySelector('.blocked-banner')){
+    toast('User is blocked — unblock first','err'); return;
+  }
+  isSending=true;
+  document.getElementById('sendBtn').disabled=true;
+  status.textContent='⏳ Sending…';
+
   if(selectedFile){
+    const fd=new FormData();
+    fd.append('text', text);
     fd.append('file', selectedFile, selectedFile.name);
     try{
-      const result = await uploadWithProgress(`/chat/${CID}/send_file`, fd, pct=>setProgress(pct));
+      const result=await uploadWithProgress(`/chat/${CID}/send_file`, fd, pct=>setProgress(pct));
       setProgress(null);
-      if(result.ok){ status.textContent='✅ Sent'; clearFile(); document.getElementById('msgInput').value=''; location.reload(); }
-      else status.textContent = '❌ ' + (result.error || 'Upload failed');
-    }catch(e){ setProgress(null); status.textContent = '❌ Upload error: ' + e; }
+      if(result.ok){
+        status.textContent='';
+        clearFile();
+        document.getElementById('msgInput').value='';
+        autoResize(document.getElementById('msgInput'));
+        appendMessage(result.message);
+        toast('Sent','ok');
+      } else {
+        status.textContent=''; toast(result.error||'Upload failed','err');
+      }
+    }catch(e){ setProgress(null); toast('Upload error: '+e,'err'); }
+    isSending=false; document.getElementById('sendBtn').disabled=false;
     return;
   }
+
   try{
-    const r = await fetch(`/chat/${CID}/send`, {method:'POST', body:fd});
-    const d = await r.json();
-    if(d.ok){ status.textContent='✅ Sent'; document.getElementById('msgInput').value=''; location.reload(); }
-    else status.textContent = '❌ ' + (d.error || 'Failed');
-  }catch(e){ status.textContent = '❌ Error: ' + e; }
+    const fd=new FormData(); fd.append('text', text);
+    const r=await fetch(`/chat/${CID}/send`,{method:'POST',body:fd});
+    const d=await r.json();
+    if(d.ok){
+      status.textContent='';
+      document.getElementById('msgInput').value='';
+      autoResize(document.getElementById('msgInput'));
+      appendMessage(d.message);
+      toast('Sent','ok');
+    } else toast(d.error||'Failed','err');
+  }catch(e){ toast('Error: '+e,'err'); }
+  isSending=false; document.getElementById('sendBtn').disabled=false;
 }
 function uploadWithProgress(url, formData, onProgress){
   return new Promise((resolve,reject)=>{
-    const xhr = new XMLHttpRequest();
+    const xhr=new XMLHttpRequest();
     xhr.open('POST', url);
-    xhr.upload.addEventListener('progress', e=>{ if(e.lengthComputable) onProgress(Math.round(e.loaded/e.total*90)); });
-    xhr.addEventListener('load', ()=>{ onProgress(100); try{ resolve(JSON.parse(xhr.responseText)); }catch{ reject('Invalid response'); } });
+    xhr.upload.addEventListener('progress', e=>{
+      if(e.lengthComputable) onProgress(Math.round(e.loaded/e.total*90));
+    });
+    xhr.addEventListener('load', ()=>{onProgress(100);try{resolve(JSON.parse(xhr.responseText));}catch{reject('Invalid response');}});
     xhr.addEventListener('error', ()=>reject('Network error'));
     xhr.send(formData);
   });
 }
 
-const readState = {};
-document.querySelectorAll('[data-tick]').forEach(el=>{ readState[el.dataset.tick] = el.textContent.trim()==='✓✓'; });
+// ── Rendering helpers ──────────────────────────────────────────────────────
+function esc(s){
+  const d=document.createElement('div');
+  d.textContent=s==null?'':s;
+  return d.innerHTML;
+}
+function renderBubble(m){
+  const isAdmin = m.from==='admin';
+  const wrap=document.createElement('div');
+  wrap.className='bubble-wrap '+(isAdmin?'admin':'user');
+  wrap.id='msg_'+m.msg_id;
+  wrap.dataset.mid=m.msg_id;
+  wrap.dataset.ts=m.ts||0;
 
+  let actions='';
+  if(!m.deleted){
+    actions='<div class="bubble-actions">';
+    if(isAdmin) actions+=`<button class="btn-ghost" style="font-size:.72rem" title="Edit"
+      onclick='editMsg(${JSON.stringify(m.msg_id)}, ${JSON.stringify(m.text||'')})'>
+      <i class="fa-solid fa-pen"></i></button>`;
+    actions+=`<button class="btn-ghost" style="font-size:.72rem;color:var(--red)" title="Delete"
+      onclick='deleteMsg(${JSON.stringify(m.msg_id)})'><i class="fa-solid fa-trash"></i></button></div>`;
+  }
+
+  let body='';
+  if(m.deleted){
+    body=`<div class="bubble ${isAdmin?'admin':'user'} deleted">
+      <i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted</div>`;
+  } else {
+    let inner='';
+    if(m.type==='photo' && m.file_id){
+      inner+=`<div class="media-placeholder" onclick="loadMedia(this,'image','${esc(m.msg_id)}')">
+        <i class="fa-solid fa-image"></i> Load image</div>`;
+    } else if(m.type==='video' && m.file_id){
+      inner+=`<div class="media-placeholder" onclick="loadMedia(this,'video','${esc(m.msg_id)}')">
+        <i class="fa-solid fa-video"></i> Load video</div>`;
+    } else if(m.type==='document' && m.file_id){
+      inner+=`<a class="bubble-doc-link" href="/chat/${CID}/file/${esc(m.msg_id)}/download" download>
+        <span style="font-size:1.4rem">📄</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.file_name||'Download file')}</span>
+        <i class="fa-solid fa-download" style="font-size:.72rem;opacity:.75"></i></a>`;
+    }
+    if(m.text) inner+=`<div>${esc(m.text)}</div>`;
+    if(m.edited) inner+='<span style="font-size:.66rem;opacity:.6">(edited)</span>';
+    body=`<div class="bubble ${isAdmin?'admin':'user'}">${inner}</div>`;
+  }
+
+  const tick = isAdmin
+    ? `<span data-tick="${esc(m.msg_id)}" style="color:${m.read?'var(--accent3)':'inherit'}">${m.read?'✓✓':'✓'}</span>`
+    : '';
+
+  wrap.innerHTML = actions + body +
+    `<div class="bubble-meta">${esc(m.time||'')} ${tick}</div>`;
+  return wrap;
+}
+function appendMessage(m){
+  // Insert before typing indicator if present
+  container.appendChild(renderBubble(m));
+  box.scrollTop = box.scrollHeight;
+  if(m.ts && m.ts > lastTs) lastTs = m.ts;
+  const countEl=document.getElementById('msgCount');
+  if(countEl) countEl.textContent = (parseInt(countEl.textContent)||0)+1;
+}
+function prependMessages(msgs){
+  const frag=document.createDocumentFragment();
+  msgs.forEach(m=>frag.appendChild(renderBubble(m)));
+  container.insertBefore(frag, container.firstChild);
+  if(msgs.length && msgs[0].ts && (oldestTs===0 || msgs[0].ts < oldestTs)) oldestTs = msgs[0].ts;
+}
+
+// ── Lazy media ─────────────────────────────────────────────────────────────
+function loadMedia(placeholder, kind, mid){
+  placeholder.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Loading…';
+  const url = `/chat/${CID}/file/${mid}/view`;
+  if(kind==='image'){
+    const img=document.createElement('img');
+    img.src=url;
+    img.onload=()=>{placeholder.replaceWith(img);};
+    img.onerror=()=>{placeholder.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Failed to load';};
+  } else {
+    const vid=document.createElement('video');
+    vid.src=url; vid.controls=true; vid.preload='metadata';
+    vid.onloadedmetadata=()=>{placeholder.replaceWith(vid);};
+    vid.onerror=()=>{placeholder.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Failed to load';};
+  }
+}
+
+// ── Load older messages (pagination) ──────────────────────────────────────
+async function loadOlder(){
+  if(!hasMore || !oldestTs) return;
+  const btn=document.querySelector('.load-more-btn');
+  if(btn){btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Loading…';}
+  try{
+    const r=await fetch(`/chat/${CID}/messages?before_ts=${oldestTs}&limit={{ 30 }}`);
+    const d=await r.json();
+    // Preserve scroll position
+    const prevHeight = box.scrollHeight;
+    prependMessages(d.messages);
+    hasMore = d.has_more;
+    box.scrollTop = box.scrollHeight - prevHeight + box.scrollTop;
+    if(!hasMore){
+      const wrap=document.getElementById('loadMoreWrap');
+      if(wrap) wrap.innerHTML='';
+    } else if(btn){
+      btn.innerHTML='<i class="fa-solid fa-arrow-up"></i> Load earlier messages';
+    }
+  }catch(e){ toast('Failed to load older messages','err'); }
+}
+
+// ── Poll for new messages ─────────────────────────────────────────────────
+const readState={};
+document.querySelectorAll('[data-tick]').forEach(el=>{
+  readState[el.dataset.tick]=el.textContent.trim()==='✓✓';
+});
 async function pollMessages(){
   try{
-    const r = await fetch(`/chat/${CID}/messages`);
-    const msgs = await r.json();
-    msgs.forEach(m=>{
-      if(m.from!=='admin') return;
-      const el = document.querySelector(`[data-tick="${m.msg_id}"]`);
-      if(!el) return;
-      if(m.read && !readState[m.msg_id]){ el.textContent='✓✓'; el.style.color='var(--accent3)'; readState[m.msg_id]=true; }
+    const r=await fetch(`/chat/${CID}/messages?after_ts=${lastTs}`);
+    const d=await r.json();
+    (d.messages||[]).forEach(m=>{
+      if(document.getElementById('msg_'+m.msg_id)){
+        // Update read state on existing admin messages
+        if(m.from==='admin'){
+          const el=document.querySelector(`[data-tick="${m.msg_id}"]`);
+          if(el && m.read && !readState[m.msg_id]){
+            el.textContent='✓✓'; el.style.color='var(--accent3)'; readState[m.msg_id]=true;
+          }
+          // Handle soft-delete from another tab
+          if(m.deleted){
+            const wrap=document.getElementById('msg_'+m.msg_id);
+            const bubble=wrap.querySelector('.bubble');
+            if(bubble && !bubble.classList.contains('deleted')){
+              bubble.className='bubble '+(m.from==='admin'?'admin':'user')+' deleted';
+              bubble.innerHTML='<i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted';
+              const a=wrap.querySelector('.bubble-actions');
+              if(a) a.remove();
+            }
+          }
+        }
+        return;
+      }
+      appendMessage(m);
+      const wrap=document.getElementById('msg_'+m.msg_id);
+      if(wrap && m.from==='user'){
+        wrap.classList.add('new-msg-flash');
+        // Play subtle notification sound if page visible
+        try{ notifyNew(); }catch(e){}
+      }
     });
-    if(msgs.length !== lastMsgCount){ lastMsgCount = msgs.length; location.reload(); }
+    // Also refresh older read-tick state on user messages that got read
   }catch(e){}
 }
-setInterval(pollMessages, 4000);
+function notifyNew(){
+  if(document.hidden) return;
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(); const g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value=880; o.type='sine';
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.28);
+    o.start(); o.stop(ctx.currentTime+0.3);
+  }catch(e){}
+}
+setInterval(pollMessages, 3500);
 
+// ── Edit / Delete / Block ─────────────────────────────────────────────────
 function editMsg(mid, text){
-  document.getElementById('editMid').value = mid;
-  document.getElementById('editText').value = text;
+  document.getElementById('editMid').value=mid;
+  document.getElementById('editText').value=text;
   openModal('editModal');
 }
 async function submitEdit(){
-  const mid = document.getElementById('editMid').value;
-  const text = document.getElementById('editText').value.trim();
+  const mid=document.getElementById('editMid').value;
+  const text=document.getElementById('editText').value.trim();
   if(!text) return;
-  const fd = new FormData(); fd.append('text', text);
-  const r = await fetch(`/chat/${CID}/message/${mid}/edit`, {method:'POST', body:fd});
-  const d = await r.json();
-  if(d.ok){ closeModal('editModal'); location.reload(); } else alert('Error: ' + (d.error||'Failed'));
+  const fd=new FormData(); fd.append('text', text);
+  const r=await fetch(`/chat/${CID}/message/${mid}/edit`,{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){
+    closeModal('editModal');
+    const wrap=document.getElementById('msg_'+mid);
+    const bubble=wrap.querySelector('.bubble');
+    // Update the text portion only (preserve media)
+    const lastDiv=bubble.querySelector('div:last-child');
+    if(lastDiv) lastDiv.textContent=text;
+    else bubble.innerHTML+=`<div>${esc(text)}</div>`;
+    toast('Message edited','ok');
+  } else toast(d.error||'Failed','err');
 }
 async function deleteMsg(mid){
-  if(!confirm('Delete this message? It stays in the database but will show as deleted.')) return;
-  const r = await fetch(`/chat/${CID}/message/${mid}/delete`, {method:'POST'});
-  const d = await r.json();
-  if(d.ok) location.reload(); else alert('Error: ' + (d.error||'Failed'));
+  if(!confirm('Delete this message? It will remain in the database but show as deleted.')) return;
+  const r=await fetch(`/chat/${CID}/message/${mid}/delete`,{method:'POST'});
+  const d=await r.json();
+  if(d.ok){
+    const wrap=document.getElementById('msg_'+mid);
+    const isAdmin=wrap.classList.contains('admin');
+    const bubble=wrap.querySelector('.bubble');
+    bubble.className='bubble '+(isAdmin?'admin':'user')+' deleted';
+    bubble.innerHTML='<i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted';
+    const a=wrap.querySelector('.bubble-actions'); if(a) a.remove();
+    toast('Message deleted','ok');
+  } else toast(d.error||'Failed','err');
 }
 async function setBlock(blocked){
   try{
-    const r = await fetch(`/chat/${CID}/${blocked?'block':'unblock'}`, {method:'POST'});
-    const d = await r.json();
-    if(d.ok) location.reload(); else alert('Error: ' + (d.error||'Failed'));
-  }catch(e){ alert('Network error: ' + e); }
+    const r=await fetch(`/chat/${CID}/${blocked?'block':'unblock'}`,{method:'POST'});
+    const d=await r.json();
+    if(d.ok){ toast(blocked?'User blocked':'User unblocked', blocked?'ok':'ok'); setTimeout(()=>location.reload(),500); }
+    else toast(d.error||'Failed','err');
+  }catch(e){ toast('Network error: '+e,'err'); }
 }
-document.querySelectorAll('.bubble-wrap').forEach(wrap=>{
-  const actions = wrap.querySelector('.bubble-actions');
-  if(!actions) return;
-  wrap.addEventListener('mouseenter', ()=>actions.style.display='flex');
-  wrap.addEventListener('mouseleave', ()=>actions.style.display='none');
-  wrap.addEventListener('touchstart', ()=>{
-    document.querySelectorAll('.bubble-actions').forEach(a=>a.style.display='none');
-    actions.style.display='flex';
-  }, {passive:true});
+
+// Bubble hover actions
+document.addEventListener('mouseover', e=>{
+  const wrap=e.target.closest('.bubble-wrap');
+  if(!wrap) return;
+  const a=wrap.querySelector('.bubble-actions');
+  if(a) a.style.display='flex';
 });
+document.addEventListener('mouseout', e=>{
+  const wrap=e.target.closest('.bubble-wrap');
+  if(!wrap) return;
+  const a=wrap.querySelector('.bubble-actions');
+  if(a) a.style.display='none';
+});
+
+window.__pageInit=function(){};
 </script>
 {% endblock %}
