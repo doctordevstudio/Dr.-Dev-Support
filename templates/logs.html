@@ -2,49 +2,78 @@
 {% block title %}Activity Log{% endblock %}
 {% block page_title %}📋 Activity Log{% endblock %}
 {% block content %}
-<p style="color:var(--muted);font-size:.78rem;margin-bottom:14px">
-  Last 300 events, newest first. Every message, login, block, delete, and spam event is recorded permanently in Firebase at <code>/logs</code> — nothing here is ever cleared automatically.
-</p>
+<div class="card" style="padding:20px;margin-bottom:18px">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <h2 style="font-size:1.15rem;font-weight:800;letter-spacing:-.01em;
+          background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
+        Last {{ logs|length }} events</h2>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:4px">
+        Newest first. Every action is permanently recorded at <code>/logs</code>.
+      </p>
+    </div>
+    <div style="position:relative;min-width:240px">
+      <i class="fa-solid fa-filter" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);
+         color:var(--muted);font-size:.82rem"></i>
+      <input type="text" id="logFilter" class="form-control" style="padding-left:38px"
+        placeholder="Filter by event type, chat, user…"/>
+    </div>
+  </div>
+</div>
 
 {% if logs %}
-<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+<div class="card" style="overflow:hidden">
   <div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse">
+    <table style="width:100%;border-collapse:collapse" id="logTable">
       <thead>
         <tr style="background:var(--card2)">
-          <th style="padding:10px 14px;text-align:left;font-size:.7rem;text-transform:uppercase;color:var(--muted)">Time</th>
-          <th style="padding:10px 14px;text-align:left;font-size:.7rem;text-transform:uppercase;color:var(--muted)">Event</th>
-          <th style="padding:10px 14px;text-align:left;font-size:.7rem;text-transform:uppercase;color:var(--muted)">Chat / User</th>
-          <th style="padding:10px 14px;text-align:left;font-size:.7rem;text-transform:uppercase;color:var(--muted)">Details</th>
+          <th style="padding:12px 16px;text-align:left;font-size:.68rem;text-transform:uppercase;
+              color:var(--muted);letter-spacing:.1em;font-weight:700">Time</th>
+          <th style="padding:12px 16px;text-align:left;font-size:.68rem;text-transform:uppercase;
+              color:var(--muted);letter-spacing:.1em;font-weight:700">Event</th>
+          <th style="padding:12px 16px;text-align:left;font-size:.68rem;text-transform:uppercase;
+              color:var(--muted);letter-spacing:.1em;font-weight:700">Chat / User</th>
+          <th style="padding:12px 16px;text-align:left;font-size:.68rem;text-transform:uppercase;
+              color:var(--muted);letter-spacing:.1em;font-weight:700">Details</th>
         </tr>
       </thead>
       <tbody>
         {% for e in logs %}
-        <tr>
-          <td style="padding:9px 14px;border-top:1px solid var(--border);font-size:.78rem;white-space:nowrap">{{ e.time }}</td>
-          <td style="padding:9px 14px;border-top:1px solid var(--border);font-size:.78rem">
+        <tr class="log-row" data-search="{{ (e.type ~ ' ' ~ (e.user_name or '') ~ ' ' ~ (e.chat_id or '') ~ ' ' ~ (e.ip or ''))|lower }}"
+            style="transition:background .15s">
+          <td style="padding:11px 16px;border-top:1px solid var(--border);font-size:.78rem;
+              white-space:nowrap;color:var(--muted)">{{ e.time }}</td>
+          <td style="padding:11px 16px;border-top:1px solid var(--border);font-size:.78rem">
             {% set colors = {
               'message_in':'var(--accent3)', 'message_out':'var(--accent)',
               'admin_login':'var(--green)', 'admin_login_failed':'var(--red)',
               'blocked':'var(--red)', 'auto_blocked':'var(--red)', 'unblocked':'var(--green)',
-              'message_deleted':'var(--yellow)', 'spam_detected':'var(--yellow)',
+              'message_deleted':'var(--yellow)', 'message_edited':'var(--yellow)',
+              'spam_detected':'var(--yellow)',
               'bot_error':'var(--red)', 'bot_started':'var(--green)', 'chat_started':'var(--accent3)'
             } %}
-            <span style="color:{{ colors.get(e.type, 'var(--text)') }};font-weight:600">{{ e.type }}</span>
+            <span style="color:{{ colors.get(e.type, 'var(--text)') }};font-weight:700;
+                font-family:ui-monospace,monospace;font-size:.74rem;
+                padding:2px 8px;border-radius:6px;
+                background:color-mix(in srgb, {{ colors.get(e.type, 'var(--text)') }} 12%, transparent)">
+              {{ e.type }}
+            </span>
           </td>
-          <td style="padding:9px 14px;border-top:1px solid var(--border);font-size:.78rem">
+          <td style="padding:11px 16px;border-top:1px solid var(--border);font-size:.78rem">
             {% if e.chat_id %}
-              <a href="{{ url_for('chat_view', cid=e.chat_id) }}" style="color:inherit;text-decoration:none">
-                {{ e.user_name or e.chat_id }} <code style="font-size:.7rem">{{ e.chat_id }}</code>
+              <a href="{{ url_for('chat_view', cid=e.chat_id) }}" data-nav
+                 style="color:inherit;text-decoration:none;display:flex;align-items:center;gap:6px">
+                <span style="font-weight:600">{{ e.user_name or e.chat_id }}</span>
+                <code style="font-size:.68rem">{{ e.chat_id }}</code>
               </a>
             {% elif e.ip %}
-              <code style="font-size:.7rem">{{ e.ip }}</code>
+              <code style="font-size:.72rem">{{ e.ip }}</code>
             {% else %}—{% endif %}
           </td>
-          <td style="padding:9px 14px;border-top:1px solid var(--border);font-size:.76rem;color:var(--muted)">
+          <td style="padding:11px 16px;border-top:1px solid var(--border);font-size:.76rem;color:var(--muted)">
             {% for k, v in e.items() %}
-              {% if k not in ['type','time','ts','chat_id','user_name','ip'] %}
-                <span style="margin-right:8px"><b>{{ k }}:</b> {{ v }}</span>
+              {% if k not in ['type','time','ts','chat_id','user_name','ip','username'] %}
+                <span style="margin-right:10px"><b style="color:var(--text)">{{ k }}:</b> {{ v }}</span>
               {% endif %}
             {% endfor %}
           </td>
@@ -60,4 +89,25 @@
   <p>No activity logged yet</p>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.__pageInit=function(){
+  const f=document.getElementById('logFilter');
+  if(!f || f.dataset.bound) return;
+  f.dataset.bound='1';
+  f.addEventListener('input', ()=>{
+    const q=f.value.toLowerCase().trim();
+    document.querySelectorAll('.log-row').forEach(r=>{
+      r.style.display = !q || r.dataset.search.includes(q) ? '' : 'none';
+    });
+  });
+};
+window.__pageInit();
+document.querySelectorAll('.log-row').forEach(r=>{
+  r.addEventListener('mouseenter', ()=>r.style.background='var(--card2)');
+  r.addEventListener('mouseleave', ()=>r.style.background='');
+});
+</script>
 {% endblock %}
