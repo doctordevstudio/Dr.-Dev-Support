@@ -1,27 +1,5 @@
 """
-telegram_bot.py — the customer support Telegram bot.
-
-Data model in Firebase Realtime Database:
-  /support/{chat_id}/meta                -> user profile + last-message summary
-  /support/{chat_id}/messages/{msg_id}   -> one message each (never hard-deleted)
-  /logs/{auto_id}                        -> append-only activity log
-
-Message soft-delete:
-  Messages are NEVER removed from Firebase. Deleting (from the admin panel)
-  only sets deleted=True / deleted_at=<time> on the record. The chat UI then
-  renders a WhatsApp-style "This message was deleted" placeholder instead of
-  the original content, but the row — and the original text/file — stays in
-  the database for the audit trail.
-
-  IMPORTANT LIMITATION: Telegram's Bot API does not notify bots when a user
-  deletes a message on their own device in a private chat (there is no such
-  webhook/update for private chats). So "user deletes a message on their
-  phone" cannot be detected or mirrored here — that's a Telegram platform
-  limitation, not a bug in this code. What IS implemented is: whatever the
-  admin deletes from the panel is soft-deleted (kept in DB, shown as
-  deleted), and the bot's own messages are best-effort deleted from the
-  Telegram side too (Telegram only allows a bot to delete its own messages,
-  and only within 48 hours).
+telegram_bot.py — customer support Telegram bot.
 """
 import datetime
 import io
@@ -40,14 +18,13 @@ BLOCKED_MSG = "🚫 You have been blocked from contacting support."
 
 
 def now_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.datetime.now(config.IST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def now_ts():
     return int(time.time())
 
 
-# ── small helpers ─────────────────────────────────────────────────────────────
 def _display_name(user) -> str:
     fn = getattr(user, "first_name", "") or ""
     ln = getattr(user, "last_name", "") or ""
@@ -59,9 +36,6 @@ def _is_blocked(cid: str) -> bool:
 
 
 def _get_file_url(file_id: str) -> str:
-    """Resolve a Telegram file_id to a downloadable HTTPS URL. Called fresh
-    every time it's needed (not just once) because file paths can go stale;
-    see refresh_file_url() used by the admin-panel download route."""
     try:
         info = bot.get_file(file_id)
         return f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info.file_path}"
@@ -71,7 +45,6 @@ def _get_file_url(file_id: str) -> str:
 
 
 def refresh_file_url(file_id: str) -> str:
-    """Public wrapper used by the Flask download route so links never die."""
     if not bot or not file_id:
         return ""
     return _get_file_url(file_id)
@@ -88,23 +61,35 @@ def get_user_photo_url(user_id: int) -> str:
     return ""
 
 
-def send_admin_notify(chat_id: str, user_name: str, text: str, msg_type: str = "text"):
-    """Notify every configured admin chat id about a new incoming message."""
+def get_user_photo_file_id(user_id: int) -> str:
+    """Return only the file_id so the panel can proxy it (stable URL, correct
+    content-type, no reliance on Telegram's ephemeral file URL)."""
+    try:
+        photos = bot.get_user_profile_photos(user_id, limit=1)
+        if photos and photos.photos:
+            return photos.photos[0][-1].file_id
+    except Exception as e:
+        print(f"[PHOTO-ID] {e}")
+    return ""
+
+
+def send_admin_notify(chat_id: str, user_name: str, username: str, text: str, msg_type: str = "text"):
     ids = config.ADMIN_CHAT_IDS()
     if not ids or not bot:
         return
     try:
         chat_link = f"{config.PANEL_URL.rstrip('/')}/chat/{chat_id}" if config.PANEL_URL else ""
         icon = {"photo": "🖼️", "video": "🎬", "document": "📄"}.get(msg_type, "💬")
-        preview = (text[:150] + "…") if text and len(text) > 150 else (text or f"[{msg_type}]")
+        preview = (text[:250] + "…") if text and len(text) > 250 else (text or f"[{msg_type}]")
 
         notify_text = (
             "📩 *New Support Message*\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 *User:* {user_name}\n"
-            f"🆔 *ID:* `{chat_id}`\n"
+            f"👤 *Name:* {user_name}\n"
+            f"🔗 *Username:* {'@' + username if username else '—'}\n"
+            f"🆔 *Chat ID:* `{chat_id}`\n"
             f"{icon} *Message:* {preview}\n"
-            f"🕐 *Time:* {now_str()}"
+            f"🕐 *Time (IST):* {now_str()}"
         )
         mk = None
         if chat_link:
@@ -121,9 +106,6 @@ def send_admin_notify(chat_id: str, user_name: str, text: str, msg_type: str = "
 
 
 def mark_admin_msgs_seen(chat_id: str):
-    """Approximation of a read receipt: Telegram gives bots no real read
-    receipts, so we treat 'user sent a new message' as 'user has seen
-    everything the admin sent before this'."""
     msgs = fb.get(f"support/{chat_id}/messages") or {}
     for mid, m in msgs.items():
         if m.get("from") == "admin" and not m.get("read"):
@@ -150,11 +132,18 @@ def store_message(chat_id: str, msg_id: str, data: dict):
 def _update_profile(cid: str, user):
     uname = _display_name(user)
     un = getattr(user, "username", "") or ""
-    existing_photo = fb.get(f"support/{cid}/meta/photo_url") or ""
-    photo_url = existing_photo or get_user_photo_url(user.id)
+    meta = fb.get(f"support/{cid}/meta") or {}
+    file_id = meta.get("photo_file_id") or ""
+    if not file_id:
+        file_id = get_user_photo_file_id(user.id)
     fb.patch(
         f"support/{cid}/meta",
-        {"user_name": uname, "username": un, "chat_id": cid, "photo_url": photo_url},
+        {
+            "user_name": uname,
+            "username": un,
+            "chat_id": cid,
+            "photo_file_id": file_id or "",
+        },
     )
     return uname, un
 
@@ -167,7 +156,6 @@ def send_msg(cid, text, **kw):
         fb.log_event("bot_error", chat_id=str(cid), error=str(e))
 
 
-# ── /start ────────────────────────────────────────────────────────────────────
 if bot:
 
     @bot.message_handler(commands=["start"])
@@ -190,19 +178,14 @@ if bot:
         fb.log_event("chat_started", chat_id=cid, user_name=uname, username=un)
         bot.send_message(cid, config.WELCOME_MESSAGE, parse_mode="Markdown")
 
-    # ── incoming user message (text / photo / video / document) ─────────────
     def _spam_gate(cid: str, uname: str, text: str) -> bool:
-        """Returns True if the message should be dropped (spam)."""
         result = antispam.check(cid, text)
         if not result["blocked"]:
             return False
 
         fb.log_event(
-            "spam_detected",
-            chat_id=cid,
-            user_name=uname,
-            reason=result["reason"],
-            auto_block=result["auto_block"],
+            "spam_detected", chat_id=cid, user_name=uname,
+            reason=result["reason"], auto_block=result["auto_block"],
         )
 
         if result["auto_block"]:
@@ -220,10 +203,6 @@ if bot:
         return True
 
     def _maybe_auto_reply(cid: str):
-        """Sends config.AUTO_REPLY, but only once per AUTO_REPLY_COOLDOWN_MINUTES
-        per user (persisted in Firebase so it survives restarts) — so it reads
-        like a WhatsApp Business away-message instead of firing on every message.
-        Set AUTO_REPLY_COOLDOWN_MINUTES=0 to send it after every message."""
         if not config.AUTO_REPLY:
             return
         cooldown = config.AUTO_REPLY_COOLDOWN_MINUTES
@@ -254,8 +233,7 @@ if bot:
             return
 
         store_message(
-            cid,
-            mid,
+            cid, mid,
             {
                 "msg_id": mid, "chat_id": cid,
                 "user_name": uname, "username": un,
@@ -267,7 +245,7 @@ if bot:
         fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type="text")
 
         mark_admin_msgs_seen(cid)
-        send_admin_notify(cid, uname, msg.text, "text")
+        send_admin_notify(cid, uname, un, msg.text, "text")
         _maybe_auto_reply(cid)
 
     def _handle_media(msg, kind: str):
@@ -290,17 +268,15 @@ if bot:
         elif kind == "video":
             file_id = msg.video.file_id
             file_name = getattr(msg.video, "file_name", None)
-        else:  # document
+        else:
             file_id = msg.document.file_id
             file_name = msg.document.file_name or "file"
-
-        file_url = _get_file_url(file_id)
 
         data = {
             "msg_id": mid, "chat_id": cid,
             "user_name": uname, "username": un,
             "text": caption, "caption": caption,
-            "file_id": file_id, "file_url": file_url,
+            "file_id": file_id,
             "type": kind, "from": "user",
             "time": now_str(), "ts": now_ts(),
             "read": False, "delivered": True, "edited": False, "deleted": False,
@@ -312,7 +288,7 @@ if bot:
         fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type=kind)
 
         mark_admin_msgs_seen(cid)
-        send_admin_notify(cid, uname, caption or f"[{kind}]", kind)
+        send_admin_notify(cid, uname, un, caption or f"[{kind}]", kind)
         _maybe_auto_reply(cid)
 
     @bot.message_handler(content_types=["photo"])
@@ -328,25 +304,26 @@ if bot:
         _handle_media(msg, "document")
 
 
-# ── Admin actions (called from Flask routes) ─────────────────────────────────
+# ── Admin actions ─────────────────────────────────────────────────────────────
 def admin_reply(chat_id: str, text: str) -> dict:
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
     try:
         m = bot.send_message(chat_id, text, parse_mode="Markdown")
         mid = str(m.message_id)
-        fb.put(
-            f"support/{chat_id}/messages/admin_{mid}",
-            {
-                "msg_id": f"admin_{mid}", "chat_id": chat_id,
-                "text": text, "type": "text", "from": "admin",
-                "time": now_str(), "ts": now_ts(),
-                "read": False, "delivered": True, "edited": False, "deleted": False,
-            },
+        data = {
+            "msg_id": f"admin_{mid}", "chat_id": chat_id,
+            "text": text, "type": "text", "from": "admin",
+            "time": now_str(), "ts": now_ts(),
+            "read": False, "delivered": True, "edited": False, "deleted": False,
+        }
+        fb.put(f"support/{chat_id}/messages/admin_{mid}", data)
+        fb.patch(
+            f"support/{chat_id}/meta",
+            {"last_message": text, "last_time": now_str(), "last_ts": now_ts(), "unread": 0},
         )
-        fb.patch(f"support/{chat_id}/meta", {"last_message": text, "last_time": now_str(), "last_ts": now_ts(), "unread": 0})
         fb.log_event("message_out", chat_id=chat_id, msg_type="text")
-        return {"ok": True, "mid": mid}
+        return {"ok": True, "mid": f"admin_{mid}", "message": data}
     except Exception as e:
         fb.log_event("bot_error", chat_id=chat_id, error=str(e))
         return {"error": str(e)}
@@ -373,26 +350,22 @@ def admin_send_file(chat_id: str, file_bytes: bytes, filename: str, mime_type: s
             file_id = m.document.file_id
             ftype = "document"
 
-        file_url = _get_file_url(file_id)
         mid = str(m.message_id)
-
-        fb.put(
-            f"support/{chat_id}/messages/admin_{mid}",
-            {
-                "msg_id": f"admin_{mid}", "chat_id": chat_id,
-                "text": caption, "caption": caption,
-                "file_id": file_id, "file_url": file_url, "file_name": filename,
-                "type": ftype, "from": "admin",
-                "time": now_str(), "ts": now_ts(),
-                "read": False, "delivered": True, "edited": False, "deleted": False,
-            },
-        )
+        data = {
+            "msg_id": f"admin_{mid}", "chat_id": chat_id,
+            "text": caption, "caption": caption,
+            "file_id": file_id, "file_name": filename,
+            "type": ftype, "from": "admin",
+            "time": now_str(), "ts": now_ts(),
+            "read": False, "delivered": True, "edited": False, "deleted": False,
+        }
+        fb.put(f"support/{chat_id}/messages/admin_{mid}", data)
         fb.patch(
             f"support/{chat_id}/meta",
             {"last_message": caption or f"[{ftype}]", "last_time": now_str(), "last_ts": now_ts(), "unread": 0},
         )
         fb.log_event("message_out", chat_id=chat_id, msg_type=ftype, file_name=filename)
-        return {"ok": True, "mid": mid, "file_url": file_url, "type": ftype}
+        return {"ok": True, "mid": f"admin_{mid}", "message": data, "type": ftype}
     except Exception as e:
         fb.log_event("bot_error", chat_id=chat_id, error=str(e))
         return {"error": str(e)}
@@ -422,20 +395,16 @@ def admin_edit_message(chat_id: str, admin_mid: str, new_text: str) -> dict:
         real_mid = int(admin_mid.replace("admin_", ""))
         bot.edit_message_text(new_text, chat_id, real_mid, parse_mode="Markdown")
     except Exception as e:
-        # Telegram edit can fail (>48h old, identical text, etc.) — still
-        # update our own record so the panel stays in sync; log the miss.
         fb.log_event("bot_error", chat_id=chat_id, error=f"edit: {e}")
-    fb.patch(f"support/{chat_id}/messages/{admin_mid}", {"text": new_text, "edited": True, "edited_at": now_str()})
+    fb.patch(
+        f"support/{chat_id}/messages/{admin_mid}",
+        {"text": new_text, "edited": True, "edited_at": now_str()},
+    )
     fb.log_event("message_edited", chat_id=chat_id, msg_id=admin_mid)
     return {"ok": True}
 
 
 def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "admin") -> dict:
-    """Never removes the record. Marks it deleted so the UI can show a
-    WhatsApp-style placeholder while the original content stays in Firebase
-    for the audit trail. Best-effort also removes the bot's own message
-    from the Telegram chat (only possible for admin_-prefixed messages,
-    and only within Telegram's 48h window)."""
     if mid.startswith("admin_") and bot:
         try:
             real_mid = int(mid.replace("admin_", ""))
