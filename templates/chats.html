@@ -1,63 +1,190 @@
 {% extends "base.html" %}
-{% block title %}Chats{% endblock %}
-{% block page_title %}🎧 Support Chats{% endblock %}
+{% block title %}Conversations{% endblock %}
+{% block page_title %}💬 Conversations{% endblock %}
 {% block content %}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+<div class="chats-header" style="display:flex;align-items:center;justify-content:space-between;
+     margin-bottom:22px;flex-wrap:wrap;gap:14px">
   <div>
-    <h2 style="font-size:1.1rem;font-weight:700">{{ chats|length }} Conversation(s)</h2>
-    <p style="color:var(--muted);font-size:.78rem">Click a user to open the chat</p>
+    <h2 style="font-size:1.3rem;font-weight:800;letter-spacing:-.02em;
+        background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
+      {{ total }} Conversation{{ '' if total==1 else 's' }}
+    </h2>
+    <p style="color:var(--muted);font-size:.78rem;margin-top:4px">
+      {% if total_unread %}<span style="color:var(--accent2);font-weight:600">{{ total_unread }} unread</span> · {% endif %}
+      Page {{ page }} of {{ pages }}
+    </p>
+  </div>
+  <div style="position:relative;min-width:280px;flex:1;max-width:400px">
+    <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:14px;top:50%;
+       transform:translateY(-50%);color:var(--muted);font-size:.85rem"></i>
+    <input type="text" id="searchBox" class="form-control" style="padding-left:38px"
+       placeholder="Search by name, @username or chat ID…" value="{{ q }}"/>
   </div>
 </div>
 
+<div id="chatsList">
 {% if chats %}
-<div style="display:flex;flex-direction:column;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+<div style="display:flex;flex-direction:column;gap:8px">
   {% for ch in chats %}
   <a href="{{ url_for('chat_view', cid=ch.chat_id) }}"
-     style="display:flex;align-items:center;gap:14px;padding:14px 18px;
-            border-bottom:1px solid var(--border);text-decoration:none;color:inherit;
-            {% if ch.unread %}background:rgba(108,99,255,.06){% endif %}">
-    <div style="width:44px;height:44px;border-radius:50%;flex-shrink:0;
-                background:linear-gradient(135deg,var(--accent),var(--accent3));
-                display:flex;align-items:center;justify-content:center;
-                font-weight:700;font-size:1rem;color:#fff;position:relative">
-      {% if ch.photo_url %}
-        <img src="{{ ch.photo_url }}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover"/>
-      {% else %}
-        {{ (ch.user_name or '?')[0]|upper }}
-      {% endif %}
+     class="chat-row card card-hover"
+     style="display:flex;align-items:center;gap:14px;padding:14px 18px;text-decoration:none;
+            color:inherit;animation:rowIn .4s ease backwards;animation-delay:{{ loop.index0 * 0.03 }}s;
+            {% if ch.unread %}border-color:rgba(124,108,255,.35);
+            background:linear-gradient(90deg,rgba(124,108,255,.08),var(--card) 40%){% endif %}">
+    <div style="width:52px;height:52px;border-radius:50%;flex-shrink:0;position:relative">
+      <div style="width:52px;height:52px;border-radius:50%;overflow:hidden;
+           background:var(--grad);display:flex;align-items:center;justify-content:center;
+           font-weight:700;font-size:1.1rem;color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.35)">
+        {% if ch.photo_file_id %}
+          <img src="{{ url_for('avatar', cid=ch.chat_id) }}" alt=""
+               style="width:52px;height:52px;object-fit:cover"
+               onerror="this.style.display='none';this.parentElement.innerHTML='{{ (ch.user_name or '?')[0]|upper }}'"/>
+        {% else %}
+          {{ (ch.user_name or '?')[0]|upper }}
+        {% endif %}
+      </div>
       {% if ch.blocked %}
-        <span title="Blocked" style="position:absolute;bottom:-2px;right:-2px;background:#ff4444;
-                     color:#fff;border-radius:50%;font-size:.55rem;width:16px;height:16px;
-                     display:flex;align-items:center;justify-content:center">🚫</span>
+        <span title="Blocked" style="position:absolute;bottom:-2px;right:-2px;background:var(--red);
+             color:#fff;border-radius:50%;font-size:.6rem;width:20px;height:20px;
+             display:flex;align-items:center;justify-content:center;border:2px solid var(--card)">🚫</span>
       {% elif ch.unread %}
-        <span style="position:absolute;top:-2px;right:-2px;background:var(--accent2);
-                     color:#fff;border-radius:99px;font-size:.6rem;padding:1px 5px;font-weight:700;min-width:16px;text-align:center">{{ ch.unread }}</span>
+        <span style="position:absolute;top:-2px;right:-2px;background:var(--accent2);color:#fff;
+             border-radius:99px;font-size:.66rem;padding:2px 7px;font-weight:700;min-width:20px;
+             text-align:center;box-shadow:0 2px 8px rgba(255,92,156,.5);border:2px solid var(--card)">
+          {{ ch.unread }}
+        </span>
       {% endif %}
     </div>
     <div style="flex:1;min-width:0">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <span style="font-weight:{% if ch.unread %}700{% else %}500{% endif %};font-size:.9rem;
-                     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:5px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <span style="font-weight:{% if ch.unread %}700{% else %}600{% endif %};font-size:.92rem;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:7px">
           {{ ch.user_name or ch.chat_id }}
-          {% if ch.username %}<span style="color:var(--muted);font-weight:400;font-size:.78rem">@{{ ch.username }}</span>{% endif %}
-          {% if ch.blocked %}<span style="font-size:.6rem;background:#ff4444;color:#fff;padding:1px 6px;border-radius:20px;font-weight:600">BLOCKED</span>{% endif %}
+          {% if ch.username %}<span style="color:var(--muted);font-weight:400;font-size:.76rem">@{{ ch.username }}</span>{% endif %}
+          {% if ch.blocked %}<span style="font-size:.6rem;background:var(--red);color:#fff;
+              padding:2px 7px;border-radius:20px;font-weight:700;letter-spacing:.04em">BLOCKED</span>{% endif %}
         </span>
-        <span style="font-size:.7rem;color:var(--muted);flex-shrink:0">{{ (ch.last_time or '')[:16] }}</span>
+        <span style="font-size:.72rem;color:var(--muted);flex-shrink:0">{{ (ch.last_time or '') }}</span>
       </div>
       {% set preview = (ch.last_message or 'No messages yet') | replace('\n',' ') %}
-      {% set preview = preview[:55] + ('…' if preview|length > 55 else '') %}
-      <div style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;
-                  color:{% if ch.unread %}var(--text){% else %}var(--muted){% endif %}">{{ preview }}</div>
+      {% set preview = preview[:70] + ('…' if preview|length > 70 else '') %}
+      <div style="font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;
+           color:{% if ch.unread %}var(--text){% else %}var(--muted){% endif %}">{{ preview }}</div>
     </div>
-    <i class="fa-solid fa-chevron-right" style="color:var(--muted);font-size:.75rem"></i>
+    <i class="fa-solid fa-chevron-right" style="color:var(--muted);font-size:.78rem"></i>
   </a>
   {% endfor %}
 </div>
+
+{% if pages > 1 %}
+<div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px;flex-wrap:wrap">
+  {% if page > 1 %}
+    <a href="?page={{ page-1 }}{% if q %}&q={{ q }}{% endif %}" data-nav class="btn btn-secondary btn-sm">
+      <i class="fa-solid fa-chevron-left"></i> Prev</a>
+  {% endif %}
+  {% for p in range(1, pages+1) %}
+    {% if p == page %}
+      <span class="btn btn-primary btn-sm" style="cursor:default">{{ p }}</span>
+    {% elif p <= 2 or p > pages-2 or (p >= page-1 and p <= page+1) %}
+      <a href="?page={{ p }}{% if q %}&q={{ q }}{% endif %}" data-nav class="btn btn-secondary btn-sm">{{ p }}</a>
+    {% elif p == 3 and page > 4 %}
+      <span style="color:var(--muted)">…</span>
+    {% elif p == pages-2 and page < pages-3 %}
+      <span style="color:var(--muted)">…</span>
+    {% endif %}
+  {% endfor %}
+  {% if page < pages %}
+    <a href="?page={{ page+1 }}{% if q %}&q={{ q }}{% endif %}" data-nav class="btn btn-secondary btn-sm">
+      Next <i class="fa-solid fa-chevron-right"></i></a>
+  {% endif %}
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty-state">
   <i class="fa-solid fa-headset"></i>
-  <p>No conversations yet</p>
-  <p style="font-size:.8rem;margin-top:6px">Users will appear here as soon as they message your bot on Telegram</p>
+  <p>{% if q %}No matches for "{{ q }}"{% else %}No conversations yet{% endif %}</p>
+  <p class="sub">{% if q %}Try a different search term{% else %}Users will appear here when they message your bot{% endif %}</p>
 </div>
 {% endif %}
+</div>
+
+<style>
+@keyframes rowIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.__pageInit = function(){
+  const sb=document.getElementById('searchBox');
+  if(!sb || sb.dataset.bound) return;
+  sb.dataset.bound='1';
+  let debounce;
+  sb.addEventListener('input', ()=>{
+    clearTimeout(debounce);
+    debounce=setTimeout(()=>{
+      const q=sb.value.trim();
+      const url='/api/chats?page=1'+(q?('&q='+encodeURIComponent(q)):'');
+      fetch(url).then(r=>r.json()).then(d=>renderChatList(d));
+    }, 250);
+  });
+};
+window.__pageInit();
+
+function renderChatList(d){
+  const wrap=document.getElementById('chatsList');
+  if(!wrap) return;
+  if(!d.chats.length){
+    wrap.innerHTML=`<div class="empty-state"><i class="fa-solid fa-headset"></i>
+      <p>${d.q?'No matches for "'+d.q+'"':'No conversations yet'}</p></div>`;
+    return;
+  }
+  let html='<div style="display:flex;flex-direction:column;gap:8px">';
+  d.chats.forEach((ch,i)=>{
+    const initial=(ch.user_name||'?')[0].toUpperCase();
+    const avatar = ch.photo_file_id
+      ? `<img src="/avatar/${ch.chat_id}" style="width:52px;height:52px;object-fit:cover" onerror="this.parentElement.innerHTML='${initial}'"/>`
+      : initial;
+    const unreadBadge = ch.unread && !ch.blocked
+      ? `<span style="position:absolute;top:-2px;right:-2px;background:var(--accent2);color:#fff;
+          border-radius:99px;font-size:.66rem;padding:2px 7px;font-weight:700;min-width:20px;text-align:center;
+          box-shadow:0 2px 8px rgba(255,92,156,.5);border:2px solid var(--card)">${ch.unread}</span>` : '';
+    const blockedBadge = ch.blocked
+      ? `<span style="position:absolute;bottom:-2px;right:-2px;background:var(--red);color:#fff;
+          border-radius:50%;font-size:.6rem;width:20px;height:20px;display:flex;align-items:center;
+          justify-content:center;border:2px solid var(--card)">🚫</span>` : '';
+    const previewRaw=(ch.last_message||'No messages yet').replace(/\n/g,' ');
+    const preview=previewRaw.length>70?previewRaw.slice(0,70)+'…':previewRaw;
+    html+=`<a href="/chat/${ch.chat_id}" class="chat-row card card-hover"
+      style="display:flex;align-items:center;gap:14px;padding:14px 18px;text-decoration:none;color:inherit;
+      animation:rowIn .4s ease backwards;animation-delay:${i*0.03}s;
+      ${ch.unread?'border-color:rgba(124,108,255,.35);background:linear-gradient(90deg,rgba(124,108,255,.08),var(--card) 40%)':''}">
+      <div style="width:52px;height:52px;border-radius:50%;flex-shrink:0;position:relative">
+        <div style="width:52px;height:52px;border-radius:50%;overflow:hidden;background:var(--grad);
+          display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;
+          color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.35)">${avatar}</div>
+        ${blockedBadge}${unreadBadge}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <span style="font-weight:${ch.unread?700:600};font-size:.92rem;overflow:hidden;text-overflow:ellipsis;
+            white-space:nowrap;display:flex;align-items:center;gap:7px">
+            ${ch.user_name||ch.chat_id}
+            ${ch.username?`<span style="color:var(--muted);font-weight:400;font-size:.76rem">@${ch.username}</span>`:''}
+            ${ch.blocked?'<span style="font-size:.6rem;background:var(--red);color:#fff;padding:2px 7px;border-radius:20px;font-weight:700">BLOCKED</span>':''}
+          </span>
+          <span style="font-size:.72rem;color:var(--muted);flex-shrink:0">${ch.last_time||''}</span>
+        </div>
+        <div style="font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;
+          color:${ch.unread?'var(--text)':'var(--muted)'}">${preview}</div>
+      </div>
+      <i class="fa-solid fa-chevron-right" style="color:var(--muted);font-size:.78rem"></i>
+    </a>`;
+  });
+  html+='</div>';
+  wrap.innerHTML=html;
+}
+</script>
 {% endblock %}
