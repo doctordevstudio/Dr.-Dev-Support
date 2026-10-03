@@ -1,13 +1,11 @@
 """
 telegram_bot.py — customer support Telegram bot.
-
-Now uses HTML parse mode everywhere (safer for user content — `_`, `*`,
-`[` etc. all pass through unchanged because we HTML-escape any untrusted
-text). All user-facing strings are HTML-escaped before being sent.
 """
 import datetime
 import html as html_lib
 import io
+import json
+import threading
 import time
 
 import telebot
@@ -33,8 +31,6 @@ def now_ts():
 
 
 def h(s):
-    """HTML-escape untrusted text so `<`, `>`, `&` don't break Telegram's
-    HTML parser. Everything we send goes through this."""
     return html_lib.escape(s or "", quote=False)
 
 
@@ -49,7 +45,6 @@ def _is_blocked(cid: str) -> bool:
 
 
 def get_welcome_message() -> str:
-    """Runtime welcome message from Firebase, falling back to env default."""
     try:
         v = fb.get("settings/welcome/message")
         if v and isinstance(v, str) and v.strip():
@@ -60,7 +55,6 @@ def get_welcome_message() -> str:
 
 
 def get_welcome_format() -> str:
-    """'html' or 'text' — controls how the welcome is sent."""
     try:
         v = fb.get("settings/welcome/format")
         if v in ("html", "text"):
@@ -86,8 +80,6 @@ def refresh_file_url(file_id: str) -> str:
 
 
 def get_user_photo_file_id(user_id: int) -> str:
-    """Fetch just the file_id (never the URL — URLs expire; file_ids are
-    stable for as long as Telegram keeps the file)."""
     try:
         photos = bot.get_user_profile_photos(user_id, limit=1)
         if photos and photos.photos:
@@ -97,35 +89,27 @@ def get_user_photo_file_id(user_id: int) -> str:
     return ""
 
 
-def send_admin_notify(chat_id: str, user_name: str, username: str, text: str, msg_type: str = "text"):
-    """Notify every configured admin chat id about a new incoming message.
-
-    Always logs the outcome so failures are visible in the Activity Log
-    instead of silently swallowed. Falls back to plain text (no parse mode)
-    if HTML parsing fails — so the admin always sees *something*.
-    """
+def send_admin_notify(chat_id, user_name, username, text, msg_type="text"):
+    """Notify every configured admin chat id. Never silently fails: logs
+    every attempt to /logs and falls back to plain-text if HTML fails."""
     ids = config.ADMIN_CHAT_IDS()
     if not ids:
         fb.log_event("admin_notify_failed", chat_id=chat_id,
-                     error="ADMIN_CHAT_ID not configured (empty)")
-        print("[NOTIFY] ADMIN_CHAT_ID env var is empty — nothing to send to.")
+                     error="ADMIN_CHAT_ID empty")
         return
     if not bot:
         fb.log_event("admin_notify_failed", chat_id=chat_id,
-                     error="Bot not initialized (BOT_TOKEN missing)")
-        print("[NOTIFY] bot is None — BOT_TOKEN missing.")
+                     error="Bot not initialized")
         return
 
     icon = {"photo": "🖼️", "video": "🎬", "document": "📄"}.get(msg_type, "💬")
     preview_raw = text or f"[{msg_type}]"
     preview = (preview_raw[:250] + "…") if len(preview_raw) > 250 else preview_raw
 
-    # Prefer PANEL_URL, fall back to nothing (button hidden if absent)
     chat_link = ""
     if config.PANEL_URL:
         chat_link = f"{config.PANEL_URL.rstrip('/')}/chat/{chat_id}"
 
-    # HTML version (preferred)
     html_text = (
         "📩 <b>New Support Message</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
@@ -135,8 +119,6 @@ def send_admin_notify(chat_id: str, user_name: str, username: str, text: str, ms
         f"{icon} <b>Message:</b> {h(preview)}\n"
         f"🕐 <b>Time (IST):</b> {now_str()}"
     )
-
-    # Plain-text fallback (no parse mode at all — guaranteed to send)
     plain_text = (
         "📩 New Support Message\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
@@ -155,22 +137,17 @@ def send_admin_notify(chat_id: str, user_name: str, username: str, text: str, ms
     for admin_id in ids:
         sent = False
         last_err = ""
-        # 1st try: HTML with reply_markup
         try:
             bot.send_message(admin_id, html_text, parse_mode="HTML", reply_markup=mk)
             sent = True
         except Exception as e:
             last_err = f"html: {e}"
-            print(f"[NOTIFY] {admin_id} HTML failed: {e}")
-            # 2nd try: HTML without markup (sometimes the URL button is the problem)
             try:
                 bot.send_message(admin_id, html_text, parse_mode="HTML")
                 sent = True
                 last_err = ""
             except Exception as e2:
                 last_err = f"html-nomarkup: {e2}"
-                print(f"[NOTIFY] {admin_id} HTML-nomarkup failed: {e2}")
-                # 3rd try: plain text, no parse mode, no markup — cannot fail on formatting
                 try:
                     bot.send_message(admin_id, plain_text)
                     sent = True
@@ -185,6 +162,7 @@ def send_admin_notify(chat_id: str, user_name: str, username: str, text: str, ms
         else:
             fb.log_event("admin_notify_failed", chat_id=chat_id,
                          admin_id=str(admin_id), error=last_err)
+
 
 def mark_admin_msgs_seen(chat_id: str):
     msgs = fb.get(f"support/{chat_id}/messages") or {}
@@ -215,9 +193,6 @@ def _update_profile(cid: str, user):
     un = getattr(user, "username", "") or ""
     meta = fb.get(f"support/{cid}/meta") or {}
     file_id = meta.get("photo_file_id") or ""
-    # If we don't have a file_id yet, fetch it — this runs once per chat and
-    # is what makes the avatar survive render restarts (file_id is stable,
-    # URL is regenerated on demand by the /avatar proxy route).
     if not file_id:
         file_id = get_user_photo_file_id(user.id)
     fb.patch(
@@ -240,7 +215,6 @@ def send_msg(cid, text, **kw):
         fb.log_event("bot_error", chat_id=str(cid), error=str(e))
 
 
-# ── /start ────────────────────────────────────────────────────────────────────
 if bot:
 
     @bot.message_handler(commands=["start"])
@@ -270,7 +244,6 @@ if bot:
             else:
                 bot.send_message(cid, welcome, parse_mode=None)
         except Exception as e:
-            # Fallback: strip any tags and send plain text
             try:
                 import re
                 plain = re.sub(r"<[^>]+>", "", welcome)
@@ -411,7 +384,6 @@ def admin_reply(chat_id: str, text: str) -> dict:
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
     try:
-        # Send as HTML with escaping so `_`, `*`, `[` etc. don't break.
         m = bot.send_message(chat_id, h(text), parse_mode="HTML")
         mid = str(m.message_id)
         data = {
@@ -510,6 +482,9 @@ def admin_edit_message(chat_id: str, admin_mid: str, new_text: str) -> dict:
 
 
 def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "admin") -> dict:
+    """Soft delete ONLY. The message row stays in Firebase forever — we just
+    flip `deleted: true` so the UI shows a placeholder. Bot-side, best-effort
+    delete our own message from Telegram (48h window)."""
     if mid.startswith("admin_") and bot:
         try:
             real_mid = int(mid.replace("admin_", ""))
@@ -525,23 +500,47 @@ def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "admin") -> di
     return {"ok": True}
 
 
-def set_reaction(chat_id: str, mid: str, emoji: str) -> dict:
-    """Toggle a reaction on a message. Only one emoji per admin (we store
-    a dict of emoji -> count, and swap when a new emoji is chosen)."""
+def set_reaction(chat_id: str, mid: str, emoji: str, actor: str = "admin") -> dict:
+    """Add a reaction to a message. Stored at
+    /support/{chat_id}/messages/{mid}/reactions/{emoji} as a count.
+    Also echoes the reaction back into the OTHER side's chat as a small
+    system reply so both sides see it."""
     if emoji not in REACTIONS:
         return {"error": "Invalid reaction"}
     path = f"support/{chat_id}/messages/{mid}/reactions"
     current = fb.get(path) or {}
     if not isinstance(current, dict):
         current = {}
-    # Increment chosen
     current[emoji] = int(current.get(emoji, 0)) + 1
     fb.put(path, current)
-    fb.log_event("message_reaction", chat_id=chat_id, msg_id=mid, emoji=emoji)
+    fb.log_event("message_reaction", chat_id=chat_id, msg_id=mid, emoji=emoji, actor=actor)
+
+    # Echo into the other side's Telegram chat
+    if bot:
+        msgs = fb.get(f"support/{chat_id}/messages") or {}
+        m = msgs.get(mid) or {}
+        other = "user" if actor == "admin" else "admin"
+        try:
+            if other == "user":
+                # Admin reacted → notify the user in their chat
+                bot.send_message(chat_id, f"{emoji} Admin reacted to your message",
+                                 parse_mode=None)
+            else:
+                # User reacted → notify every admin
+                for admin_id in config.ADMIN_CHAT_IDS():
+                    try:
+                        bot.send_message(admin_id,
+                                         f"{emoji} User reacted to a message in chat {chat_id}",
+                                         parse_mode=None)
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[REACT-ECHO] {e}")
+
     return {"ok": True, "reactions": current}
 
 
-def remove_reaction(chat_id: str, mid: str, emoji: str) -> dict:
+def remove_reaction(chat_id: str, mid: str, emoji: str, actor: str = "admin") -> dict:
     path = f"support/{chat_id}/messages/{mid}/reactions"
     current = fb.get(path) or {}
     if not isinstance(current, dict):
@@ -551,11 +550,15 @@ def remove_reaction(chat_id: str, mid: str, emoji: str) -> dict:
         if current[emoji] == 0:
             del current[emoji]
     fb.put(path, current)
-    fb.log_event("message_reaction_removed", chat_id=chat_id, msg_id=mid, emoji=emoji)
+    fb.log_event("message_reaction_removed", chat_id=chat_id, msg_id=mid, emoji=emoji, actor=actor)
     return {"ok": True, "reactions": current}
 
 
-# ── Broadcast ─────────────────────────────────────────────────────────────────
+# ── Broadcast engine (runs in a background thread) ──────────────────────────
+_broadcast_jobs = {}
+_broadcast_lock = threading.Lock()
+
+
 def _all_user_chat_ids():
     raw = fb.get("support") or {}
     out = []
@@ -568,49 +571,113 @@ def _all_user_chat_ids():
     return out
 
 
-def broadcast_message(text: str, fmt: str = "html"):
-    """Yield (sent_count, total, chat_id, error) as we go."""
-    if not bot:
-        yield (0, 0, None, "Bot not configured")
-        return
-    recipients = _all_user_chat_ids()
-    total = len(recipients)
-    if total == 0:
-        yield (0, 0, None, "No recipients")
-        return
-
+def _run_broadcast(job_id, text, fmt, recipients):
+    """Runs in a background thread. Updates the job dict in-place; the SSE
+    endpoint reads from it without blocking."""
     sent = 0
-    fb.log_event("broadcast_started", total=total, fmt=fmt)
-    for cid in recipients:
+    failed = []
+    total = len(recipients)
+    fb.log_event("broadcast_started", total=total, fmt=fmt, job_id=job_id)
+
+    for i, cid in enumerate(recipients, 1):
         try:
             if fmt == "html":
                 bot.send_message(cid, text, parse_mode="HTML")
             else:
                 bot.send_message(cid, text, parse_mode=None)
             sent += 1
-            # also store in chat history as admin message
             try:
-                data = {
-                    "msg_id": f"broadcast_{int(time.time()*1000)}_{cid}",
-                    "chat_id": cid,
-                    "text": text, "type": "text", "from": "admin",
-                    "time": now_str(), "ts": now_ts(),
-                    "read": False, "delivered": True,
-                    "edited": False, "deleted": False,
-                    "reactions": {}, "broadcast": True,
-                }
-                fb.put(f"support/{cid}/messages/{data['msg_id']}", data)
+                bmid = f"broadcast_{int(time.time()*1000)}_{cid}"
+                fb.put(
+                    f"support/{cid}/messages/{bmid}",
+                    {
+                        "msg_id": bmid, "chat_id": cid,
+                        "text": text, "type": "text", "from": "admin",
+                        "time": now_str(), "ts": now_ts(),
+                        "read": False, "delivered": True,
+                        "edited": False, "deleted": False,
+                        "reactions": {}, "broadcast": True,
+                    },
+                )
                 fb.patch(
                     f"support/{cid}/meta",
-                    {"last_message": text[:80], "last_time": now_str(), "last_ts": now_ts()},
+                    {"last_message": text[:120], "last_time": now_str(), "last_ts": now_ts()},
                 )
             except Exception:
                 pass
-            yield (sent, total, cid, None)
         except Exception as e:
-            yield (sent, total, cid, str(e))
-        time.sleep(0.05)  # ~20 msgs/s, well under Telegram's limits
-    fb.log_event("broadcast_finished", total=total, sent=sent, fmt=fmt)
+            failed.append({"chat_id": cid, "error": str(e)})
+
+        with _broadcast_lock:
+            _broadcast_jobs[job_id]["sent"] = sent
+            _broadcast_jobs[job_id]["failed"] = failed
+            _broadcast_jobs[job_id]["progress"] = i
+            _broadcast_jobs[job_id]["last_chat"] = cid
+
+        time.sleep(0.05)  # ~20/s
+
+    with _broadcast_lock:
+        _broadcast_jobs[job_id]["done"] = True
+        _broadcast_jobs[job_id]["sent"] = sent
+        _broadcast_jobs[job_id]["failed"] = failed
+
+    fb.log_event("broadcast_finished", job_id=job_id, total=total, sent=sent, failed=len(failed))
+
+
+def start_broadcast(text: str, fmt: str) -> dict:
+    """Kick off a broadcast and return a job_id immediately. Non-blocking."""
+    if not bot:
+        return {"error": "Bot not configured"}
+    recipients = _all_user_chat_ids()
+    if not recipients:
+        return {"error": "No recipients"}
+
+    job_id = f"bc_{int(time.time()*1000)}"
+    with _broadcast_lock:
+        _broadcast_jobs[job_id] = {
+            "job_id": job_id, "text": text, "fmt": fmt,
+            "total": len(recipients), "progress": 0,
+            "sent": 0, "failed": [], "done": False,
+            "started_at": now_str(),
+        }
+
+    # Persist broadcast record so it can be re-sent / edited / deleted
+    fb.put(
+        f"broadcasts/{job_id}",
+        {
+            "id": job_id, "text": text, "fmt": fmt,
+            "total": len(recipients), "sent": 0, "failed": 0,
+            "status": "running", "started_at": now_str(),
+            "ts": now_ts(), "archived": False,
+        },
+    )
+
+    threading.Thread(
+        target=_run_broadcast,
+        args=(job_id, text, fmt, recipients),
+        daemon=True,
+    ).start()
+
+    return {"ok": True, "job_id": job_id, "total": len(recipients)}
+
+
+def get_broadcast_job(job_id: str):
+    with _broadcast_lock:
+        return dict(_broadcast_jobs.get(job_id) or {})
+
+
+def mark_broadcast_finished_in_db(job_id):
+    """Called by app when SSE sees done — persists final counts."""
+    with _broadcast_lock:
+        j = _broadcast_jobs.get(job_id)
+    if not j:
+        return
+    fb.patch(f"broadcasts/{job_id}", {
+        "sent": j.get("sent", 0),
+        "failed": len(j.get("failed", [])),
+        "status": "completed",
+        "finished_at": now_str(),
+    })
 
 
 def run_bot():
