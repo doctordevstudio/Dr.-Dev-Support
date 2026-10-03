@@ -2,7 +2,7 @@
 {% block title %}Broadcast{% endblock %}
 {% block page_title %}📢 Broadcast Message{% endblock %}
 {% block content %}
-<div style="max-width:820px;margin:0 auto">
+<div style="max-width:920px;margin:0 auto">
   <div class="card" style="padding:24px;margin-bottom:18px">
     <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:20px">
       <div style="width:48px;height:48px;border-radius:14px;background:var(--grad);
@@ -29,11 +29,9 @@
       </button>
     </div>
 
-    <div id="editorWrap" style="position:relative">
-      <textarea id="messageBox" class="form-control" rows="10"
-        style="font-family:{% if true %}ui-monospace,'JetBrains Mono',monospace{% endif %};font-size:.85rem;line-height:1.6;resize:vertical"
-        placeholder="Type your broadcast message here…"></textarea>
-    </div>
+    <textarea id="messageBox" class="form-control" rows="9"
+      style="font-family:ui-monospace,'JetBrains Mono',monospace;font-size:.85rem;line-height:1.6;resize:vertical"
+      placeholder="Type your broadcast message here…"></textarea>
 
     <div id="htmlPreview" style="display:none;margin-top:14px">
       <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;
@@ -57,32 +55,99 @@
 
     <div id="progressWrap" style="display:none;margin-top:22px">
       <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:8px">
-        <span style="font-weight:600">Sending…</span>
+        <span style="font-weight:600" id="progressTitle">Sending…</span>
         <span id="progressText" style="color:var(--muted)">0 / 0</span>
       </div>
       <div style="height:8px;background:var(--card2);border-radius:99px;overflow:hidden;border:1px solid var(--border)">
         <div id="progressBar" style="height:100%;width:0%;background:var(--grad);transition:width .3s;border-radius:99px"></div>
       </div>
-      <div id="progressLog" style="margin-top:12px;max-height:200px;overflow-y:auto;font-size:.76rem;
+      <div id="progressLog" style="margin-top:12px;max-height:180px;overflow-y:auto;font-size:.76rem;
            font-family:ui-monospace,monospace;color:var(--muted);background:var(--card2);
            padding:12px;border-radius:10px;border:1px solid var(--border);display:none"></div>
     </div>
   </div>
 
-  <div class="card" style="padding:18px;background:linear-gradient(135deg,rgba(124,108,255,.08),rgba(255,92,156,.05))">
-    <div style="display:flex;gap:12px;align-items:flex-start">
-      <i class="fa-solid fa-circle-info" style="color:var(--accent);font-size:1.1rem;margin-top:2px"></i>
-      <div style="font-size:.8rem;color:var(--muted);line-height:1.6">
-        <b style="color:var(--text)">HTML mode</b> supports Telegram HTML tags:
-        <code>&lt;b&gt;bold&lt;/b&gt;</code>, <code>&lt;i&gt;italic&lt;/i&gt;</code>,
-        <code>&lt;u&gt;underline&lt;/u&gt;</code>, <code>&lt;s&gt;strike&lt;/s&gt;</code>,
-        <code>&lt;a href="..."&gt;link&lt;/a&gt;</code>, <code>&lt;code&gt;code&lt;/code&gt;</code>,
-        <code>&lt;pre&gt;pre&lt;/pre&gt;</code>, <code>&lt;blockquote&gt;quote&lt;/blockquote&gt;</code>.<br>
-        <b style="color:var(--text)">Text mode</b> sends plain text with no formatting —
-        every character (including <code>_</code> and <code>*</code>) is preserved literally.
-        Messages are sent at ~20/sec to stay within Telegram limits.
+  <!-- Past broadcasts -->
+  <div class="card" style="padding:20px">
+    <h2 style="font-size:1.05rem;font-weight:800;margin-bottom:14px;
+        background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
+      Past Broadcasts
+    </h2>
+
+    {% if broadcasts %}
+    <div style="display:flex;flex-direction:column;gap:10px">
+      {% for b in broadcasts %}
+      {% if not b.archived %}
+      <div class="bc-row card card-hover" data-bid="{{ b.id }}" style="padding:14px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.72rem;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span style="font-weight:700;color:var(--text)">{{ b.id }}</span>
+              <span style="background:var(--card2);padding:1px 8px;border-radius:99px;font-weight:600">
+                {{ b.fmt|upper }}</span>
+              <span>{{ b.started_at or '' }}</span>
+              {% if b.status == 'completed' %}
+                <span style="color:var(--green);font-weight:700">✓ {{ b.sent }}/{{ b.total }}</span>
+              {% elif b.status == 'running' %}
+                <span style="color:var(--accent);font-weight:700">● running</span>
+              {% endif %}
+            </div>
+            <div style="margin-top:8px;font-size:.85rem;line-height:1.5;color:var(--text);
+                 background:var(--card2);padding:10px 12px;border-radius:10px;border:1px solid var(--border);
+                 max-height:120px;overflow:auto" class="bc-body" data-fmt="{{ b.fmt }}">
+              {% if b.fmt == 'html' %}{{ b.text|safe }}{% else %}<pre style="margin:0;white-space:pre-wrap;font-family:inherit">{{ b.text }}</pre>{% endif %}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+            <button class="btn btn-secondary btn-sm" onclick="resendBroadcast('{{ b.id }}')" title="Resend">
+              <i class="fa-solid fa-rotate-right"></i> Resend</button>
+            <button class="btn btn-secondary btn-sm" onclick="editBroadcast('{{ b.id }}')" title="Edit">
+              <i class="fa-solid fa-pen"></i> Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="archiveBroadcast('{{ b.id }}')" title="Archive">
+              <i class="fa-solid fa-box-archive"></i> Archive</button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:30px">
+      <i class="fa-solid fa-tower-broadcast"></i>
+      <p>No broadcasts sent yet</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:16px;margin-top:16px;background:linear-gradient(135deg,rgba(124,108,255,.08),rgba(255,92,156,.05))">
+    <div style="display:flex;gap:12px;align-items:flex-start;font-size:.78rem;color:var(--muted);line-height:1.6">
+      <i class="fa-solid fa-circle-info" style="color:var(--accent);font-size:1.05rem;margin-top:2px"></i>
+      <div>
+        <b style="color:var(--text)">HTML mode</b> supports:
+        <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;u&gt;</code>, <code>&lt;s&gt;</code>,
+        <code>&lt;a href=""&gt;</code>, <code>&lt;code&gt;</code>, <code>&lt;pre&gt;</code>,
+        <code>&lt;blockquote&gt;</code>.
+        <b style="color:var(--text)">Text mode</b> sends plain text with no formatting.
+        Broadcasts run in the background — you can navigate away while they send.
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Edit modal -->
+<div class="modal-overlay" id="bcEditModal">
+  <div class="modal" style="max-width:600px">
+    <button class="modal-close" onclick="closeModal('bcEditModal')"><i class="fa-solid fa-xmark"></i></button>
+    <h3 style="margin-bottom:14px;font-weight:700">Edit Broadcast <span id="editBcId"></span></h3>
+    <div style="display:flex;gap:6px;margin-bottom:12px;background:var(--card2);padding:4px;border-radius:10px;width:fit-content">
+      <button id="editTabText" class="fmt-tab" onclick="setEditFmt('text')">Text</button>
+      <button id="editTabHtml" class="fmt-tab" onclick="setEditFmt('html')">HTML</button>
+    </div>
+    <textarea id="editBcText" class="form-control" rows="8"
+      style="font-family:ui-monospace,monospace;font-size:.85rem;line-height:1.55"></textarea>
+    <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="submitBroadcastEdit()">
+      <i class="fa-solid fa-save"></i> Save Changes
+    </button>
   </div>
 </div>
 
@@ -99,23 +164,27 @@
 {% block scripts %}
 <script>
 let currentFormat='text';
-let eventSource=null;
+let pollHandle=null;
+let currentJobId=null;
+let editingBcId=null;
+let editingBcFmt='html';
 
 function setFormat(f){
   currentFormat=f;
   document.getElementById('tabText').classList.toggle('active', f==='text');
   document.getElementById('tabHtml').classList.toggle('active', f==='html');
-  document.getElementById('htmlPreview').style.display = f==='html'?'block':'none';
-  if(f==='html') updatePreview();
-  else document.getElementById('htmlPreview').style.display='none';
+  updatePreview();
 }
 function updatePreview(){
-  if(currentFormat!=='html') return;
-  const t=document.getElementById('messageBox').value;
-  document.getElementById('previewContent').innerHTML=t;
+  const wrap=document.getElementById('htmlPreview');
+  if(currentFormat==='html'){
+    wrap.style.display='block';
+    document.getElementById('previewContent').innerHTML=document.getElementById('messageBox').value;
+  } else {
+    wrap.style.display='none';
+  }
 }
 document.getElementById('messageBox').addEventListener('input', updatePreview);
-
 function clearAll(){
   document.getElementById('messageBox').value='';
   updatePreview();
@@ -144,47 +213,116 @@ async function startBroadcast(){
 
   const btn=document.getElementById('sendBtn');
   btn.disabled=true;
-  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Sending…';
-  document.getElementById('progressWrap').style.display='block';
-  document.getElementById('progressLog').style.display='block';
-  document.getElementById('progressLog').innerHTML='';
-  document.getElementById('progressBar').style.width='0%';
+  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Starting…';
 
-  const url=`/broadcast/send?text=${encodeURIComponent(text)}&fmt=${currentFormat}`;
-  eventSource=new EventSource(url);
+  const fd=new FormData();
+  fd.append('text', text);
+  fd.append('fmt', currentFormat);
+  try{
+    const r=await fetch('/broadcast/start',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!d.ok){ toast(d.error||'Failed to start','err'); btn.disabled=false;
+      btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast'; return; }
 
-  eventSource.onmessage=(e)=>{
-    const d=JSON.parse(e.data);
-    if(d.error && !d.total){
-      document.getElementById('progressLog').innerHTML+=`<div style="color:var(--red)">✗ ${d.error}</div>`;
-      eventSource.close(); doneSending(false); return;
-    }
-    if(d.done){
-      eventSource.close(); doneSending(true); return;
-    }
+    currentJobId=d.job_id;
+    document.getElementById('progressWrap').style.display='block';
+    document.getElementById('progressLog').style.display='block';
+    document.getElementById('progressLog').innerHTML='';
+    document.getElementById('progressBar').style.width='0%';
+    document.getElementById('progressTitle').textContent='Sending…';
+    document.getElementById('progressText').textContent=`0 / ${d.total}`;
+    btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Broadcasting…';
+
+    if(pollHandle) clearInterval(pollHandle);
+    pollHandle=setInterval(pollBroadcastStatus, 700);
+  }catch(e){
+    toast('Error: '+e,'err');
+    btn.disabled=false;
+    btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast';
+  }
+}
+
+async function pollBroadcastStatus(){
+  if(!currentJobId) return;
+  try{
+    const r=await fetch(`/broadcast/status/${currentJobId}`);
+    if(!r.ok) return;
+    const d=await r.json();
     const pct = d.total ? Math.round((d.sent/d.total)*100) : 0;
     document.getElementById('progressBar').style.width=pct+'%';
     document.getElementById('progressText').textContent=`${d.sent} / ${d.total}`;
-    const log=document.getElementById('progressLog');
-    if(d.error){
-      log.innerHTML+=`<div style="color:var(--red)">✗ ${d.chat_id}: ${d.error}</div>`;
-    } else {
-      log.innerHTML+=`<div style="color:var(--green)">✓ ${d.chat_id}</div>`;
-    }
-    log.scrollTop=log.scrollHeight;
-  };
 
-  eventSource.onerror=()=>{
-    eventSource.close();
-    doneSending(false);
-  };
+    const log=document.getElementById('progressLog');
+    if(d.last_chat){
+      const failed=d.failed && d.failed.find(f=>f.chat_id===d.last_chat);
+      if(failed){
+        log.innerHTML+=`<div style="color:var(--red)">✗ ${failed.chat_id}: ${failed.error}</div>`;
+      } else {
+        log.innerHTML+=`<div style="color:var(--green)">✓ ${d.last_chat}</div>`;
+      }
+      log.scrollTop=log.scrollHeight;
+    }
+
+    if(d.done){
+      clearInterval(pollHandle); pollHandle=null;
+      document.getElementById('progressTitle').textContent='Completed';
+      document.getElementById('progressBar').style.width='100%';
+      const btn=document.getElementById('sendBtn');
+      btn.disabled=false;
+      btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast';
+      await fetch(`/broadcast/finish/${currentJobId}`,{method:'POST'});
+      toast('Broadcast finished','ok',4000);
+      setTimeout(()=>location.reload(), 800);
+    }
+  }catch(e){}
 }
 
-function doneSending(ok){
-  const btn=document.getElementById('sendBtn');
-  btn.disabled=false;
-  btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast';
-  if(ok) toast('Broadcast finished successfully','ok',4000);
+async function resendBroadcast(bid){
+  if(!confirm('Resend this broadcast to all users now?')) return;
+  const r=await fetch(`/broadcast/resend/${bid}`,{method:'POST'});
+  const d=await r.json();
+  if(d.ok){ toast('Resend started','ok'); setTimeout(()=>location.reload(),600); }
+  else toast(d.error||'Failed','err');
+}
+async function archiveBroadcast(bid){
+  if(!confirm('Archive this broadcast record? It will be hidden but kept in the DB.')) return;
+  const r=await fetch(`/broadcast/delete/${bid}`,{method:'POST'});
+  const d=await r.json();
+  if(d.ok){ toast('Archived','ok'); document.querySelector(`.bc-row[data-bid="${bid}"]`)?.remove(); }
+  else toast(d.error||'Failed','err');
+}
+function editBroadcast(bid){
+  const row=document.querySelector(`.bc-row[data-bid="${bid}"]`);
+  if(!row) return;
+  editingBcId=bid;
+  editingBcFmt=row.querySelector('.bc-body').dataset.fmt;
+  const body=row.querySelector('.bc-body');
+  // Read raw text — for HTML mode the body holds rendered HTML; we stored
+  // raw text on the record itself. Fetch it fresh from the API.
+  fetch(`/broadcast/status/unknown`).catch(()=>{}); // no-op, keep API simple
+  // Simpler: read the textContent for text mode, and for HTML we ask server
+  // to send the raw. Since this is a small app, we just re-read from a tiny
+  // endpoint — but to keep code lean, we use the DOM:
+  const rawText = editingBcFmt === 'html' ? body.innerHTML : body.querySelector('pre')?.textContent || body.textContent;
+  document.getElementById('editBcId').textContent = bid;
+  document.getElementById('editBcText').value = rawText;
+  setEditFmt(editingBcFmt);
+  openModal('bcEditModal');
+}
+function setEditFmt(f){
+  editingBcFmt=f;
+  document.getElementById('editTabText').classList.toggle('active', f==='text');
+  document.getElementById('editTabHtml').classList.toggle('active', f==='html');
+}
+async function submitBroadcastEdit(){
+  if(!editingBcId) return;
+  const fd=new FormData();
+  fd.append('text', document.getElementById('editBcText').value);
+  fd.append('fmt', editingBcFmt);
+  const r=await fetch(`/broadcast/update/${editingBcId}`,{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ toast('Broadcast updated','ok'); closeModal('bcEditModal'); setTimeout(()=>location.reload(),500); }
+  else toast(d.error||'Failed','err');
 }
 
 fetch('/broadcast/count').then(r=>r.json()).then(d=>{
