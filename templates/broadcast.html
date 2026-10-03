@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Broadcast{% endblock %}
+{% block page_title %}📢 Broadcast Message{% endblock %}
+{% block content %}
+<div style="max-width:820px;margin:0 auto">
+  <div class="card" style="padding:24px;margin-bottom:18px">
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:20px">
+      <div style="width:48px;height:48px;border-radius:14px;background:var(--grad);
+           display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.3rem;
+           box-shadow:0 6px 20px rgba(124,108,255,.4);flex-shrink:0">
+        <i class="fa-solid fa-tower-broadcast"></i>
+      </div>
+      <div>
+        <h2 style="font-size:1.15rem;font-weight:800;letter-spacing:-.01em">Send to all users</h2>
+        <p style="color:var(--muted);font-size:.82rem;margin-top:4px">
+          Broadcast a message to every non-blocked user who has ever contacted your bot.
+          <span id="recipientCount" style="color:var(--accent);font-weight:700"></span>
+        </p>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;background:var(--card2);padding:5px;border-radius:12px;
+         border:1px solid var(--border);width:fit-content">
+      <button id="tabText" class="fmt-tab active" onclick="setFormat('text')">
+        <i class="fa-solid fa-font"></i> Text
+      </button>
+      <button id="tabHtml" class="fmt-tab" onclick="setFormat('html')">
+        <i class="fa-solid fa-code"></i> HTML
+      </button>
+    </div>
+
+    <div id="editorWrap" style="position:relative">
+      <textarea id="messageBox" class="form-control" rows="10"
+        style="font-family:{% if true %}ui-monospace,'JetBrains Mono',monospace{% endif %};font-size:.85rem;line-height:1.6;resize:vertical"
+        placeholder="Type your broadcast message here…"></textarea>
+    </div>
+
+    <div id="htmlPreview" style="display:none;margin-top:14px">
+      <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;
+           font-weight:700;margin-bottom:8px">Preview</div>
+      <div class="card" style="padding:16px;background:var(--card2)">
+        <div id="previewContent" style="font-size:.9rem;line-height:1.6"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn btn-primary" id="sendBtn" onclick="startBroadcast()">
+        <i class="fa-solid fa-paper-plane"></i> Send Broadcast
+      </button>
+      <button class="btn btn-secondary" onclick="previewToMe()">
+        <i class="fa-solid fa-eye"></i> Send test to me
+      </button>
+      <button class="btn btn-secondary" onclick="clearAll()">
+        <i class="fa-solid fa-eraser"></i> Clear
+      </button>
+    </div>
+
+    <div id="progressWrap" style="display:none;margin-top:22px">
+      <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:8px">
+        <span style="font-weight:600">Sending…</span>
+        <span id="progressText" style="color:var(--muted)">0 / 0</span>
+      </div>
+      <div style="height:8px;background:var(--card2);border-radius:99px;overflow:hidden;border:1px solid var(--border)">
+        <div id="progressBar" style="height:100%;width:0%;background:var(--grad);transition:width .3s;border-radius:99px"></div>
+      </div>
+      <div id="progressLog" style="margin-top:12px;max-height:200px;overflow-y:auto;font-size:.76rem;
+           font-family:ui-monospace,monospace;color:var(--muted);background:var(--card2);
+           padding:12px;border-radius:10px;border:1px solid var(--border);display:none"></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:18px;background:linear-gradient(135deg,rgba(124,108,255,.08),rgba(255,92,156,.05))">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <i class="fa-solid fa-circle-info" style="color:var(--accent);font-size:1.1rem;margin-top:2px"></i>
+      <div style="font-size:.8rem;color:var(--muted);line-height:1.6">
+        <b style="color:var(--text)">HTML mode</b> supports Telegram HTML tags:
+        <code>&lt;b&gt;bold&lt;/b&gt;</code>, <code>&lt;i&gt;italic&lt;/i&gt;</code>,
+        <code>&lt;u&gt;underline&lt;/u&gt;</code>, <code>&lt;s&gt;strike&lt;/s&gt;</code>,
+        <code>&lt;a href="..."&gt;link&lt;/a&gt;</code>, <code>&lt;code&gt;code&lt;/code&gt;</code>,
+        <code>&lt;pre&gt;pre&lt;/pre&gt;</code>, <code>&lt;blockquote&gt;quote&lt;/blockquote&gt;</code>.<br>
+        <b style="color:var(--text)">Text mode</b> sends plain text with no formatting —
+        every character (including <code>_</code> and <code>*</code>) is preserved literally.
+        Messages are sent at ~20/sec to stay within Telegram limits.
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.fmt-tab{
+  background:transparent;border:none;color:var(--muted);padding:9px 18px;border-radius:8px;
+  font-size:.82rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;
+  transition:all .18s;font-family:inherit;
+}
+.fmt-tab.active{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(124,108,255,.35)}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentFormat='text';
+let eventSource=null;
+
+function setFormat(f){
+  currentFormat=f;
+  document.getElementById('tabText').classList.toggle('active', f==='text');
+  document.getElementById('tabHtml').classList.toggle('active', f==='html');
+  document.getElementById('htmlPreview').style.display = f==='html'?'block':'none';
+  if(f==='html') updatePreview();
+  else document.getElementById('htmlPreview').style.display='none';
+}
+function updatePreview(){
+  if(currentFormat!=='html') return;
+  const t=document.getElementById('messageBox').value;
+  document.getElementById('previewContent').innerHTML=t;
+}
+document.getElementById('messageBox').addEventListener('input', updatePreview);
+
+function clearAll(){
+  document.getElementById('messageBox').value='';
+  updatePreview();
+}
+
+async function previewToMe(){
+  const text=document.getElementById('messageBox').value;
+  if(!text.trim()){ toast('Message is empty','err'); return; }
+  const fd=new FormData();
+  fd.append('message', text);
+  fd.append('format', currentFormat);
+  try{
+    const r=await fetch('/welcome/preview',{method:'POST',body:fd});
+    const d=await r.json();
+    if(d.ok){
+      toast(`Test sent to ${d.sent_to.length} admin chat(s)`,'ok');
+      if(d.errors && d.errors.length) toast('Some errors: '+d.errors.join('; '),'err');
+    } else toast(d.error||'Failed','err');
+  }catch(e){ toast('Error: '+e,'err'); }
+}
+
+async function startBroadcast(){
+  const text=document.getElementById('messageBox').value;
+  if(!text.trim()){ toast('Message is empty','err'); return; }
+  if(!confirm('Send this broadcast to ALL users? This cannot be undone.')) return;
+
+  const btn=document.getElementById('sendBtn');
+  btn.disabled=true;
+  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Sending…';
+  document.getElementById('progressWrap').style.display='block';
+  document.getElementById('progressLog').style.display='block';
+  document.getElementById('progressLog').innerHTML='';
+  document.getElementById('progressBar').style.width='0%';
+
+  const url=`/broadcast/send?text=${encodeURIComponent(text)}&fmt=${currentFormat}`;
+  eventSource=new EventSource(url);
+
+  eventSource.onmessage=(e)=>{
+    const d=JSON.parse(e.data);
+    if(d.error && !d.total){
+      document.getElementById('progressLog').innerHTML+=`<div style="color:var(--red)">✗ ${d.error}</div>`;
+      eventSource.close(); doneSending(false); return;
+    }
+    if(d.done){
+      eventSource.close(); doneSending(true); return;
+    }
+    const pct = d.total ? Math.round((d.sent/d.total)*100) : 0;
+    document.getElementById('progressBar').style.width=pct+'%';
+    document.getElementById('progressText').textContent=`${d.sent} / ${d.total}`;
+    const log=document.getElementById('progressLog');
+    if(d.error){
+      log.innerHTML+=`<div style="color:var(--red)">✗ ${d.chat_id}: ${d.error}</div>`;
+    } else {
+      log.innerHTML+=`<div style="color:var(--green)">✓ ${d.chat_id}</div>`;
+    }
+    log.scrollTop=log.scrollHeight;
+  };
+
+  eventSource.onerror=()=>{
+    eventSource.close();
+    doneSending(false);
+  };
+}
+
+function doneSending(ok){
+  const btn=document.getElementById('sendBtn');
+  btn.disabled=false;
+  btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast';
+  if(ok) toast('Broadcast finished successfully','ok',4000);
+}
+
+fetch('/broadcast/count').then(r=>r.json()).then(d=>{
+  document.getElementById('recipientCount').textContent=` (${d.count} recipient${d.count===1?'':'s'})`;
+});
+</script>
+{% endblock %}
