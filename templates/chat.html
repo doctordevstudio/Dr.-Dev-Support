@@ -52,13 +52,13 @@
 .bubble-wrap.user{align-items:flex-start}
 @keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
 .bubble{max-width:74%;padding:11px 15px;border-radius:18px;font-size:.87rem;line-height:1.55;
-  word-break:break-word;position:relative;transition:all .2s}
+  word-break:break-word;position:relative;transition:all .2s;white-space:pre-wrap}
 .bubble.user{background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:5px;color:var(--text);
   box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .bubble.admin{background:var(--grad);color:#fff;border-bottom-right-radius:5px;
   box-shadow:0 4px 16px rgba(124,108,255,.35)}
 .bubble.deleted{background:transparent;border:1px dashed var(--border);color:var(--muted);
-  font-style:italic;box-shadow:none}
+  font-style:italic;box-shadow:none;white-space:normal}
 .bubble-meta{font-size:.66rem;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:5px}
 .bubble-wrap.admin .bubble-meta{justify-content:flex-end}
 .bubble img,.bubble video{max-width:260px;border-radius:12px;display:block;margin-bottom:5px}
@@ -70,14 +70,16 @@
 .bubble.user .bubble-doc-link{background:var(--card3);border-color:var(--border)}
 .bubble-doc-link:hover{transform:translateX(2px);background:rgba(255,255,255,.24)}
 .bubble.user .bubble-doc-link:hover{background:var(--card2)}
-.bubble-actions{position:absolute;top:-36px;background:var(--card);border:1px solid var(--border);
+.bubble-actions{position:absolute;top:-38px;background:var(--card);border:1px solid var(--border);
   border-radius:10px;padding:4px 7px;display:none;gap:4px;white-space:nowrap;z-index:10;
   box-shadow:0 8px 24px rgba(0,0,0,.4);animation:popIn .15s}
 .bubble-wrap.admin .bubble-actions{right:0}
 .bubble-wrap.user .bubble-actions{left:0}
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.94)}to{opacity:1;transform:none}}
+.bubble-actions button.emoji-btn{background:none;border:none;font-size:1rem;cursor:pointer;
+  padding:4px 6px;border-radius:6px;transition:all .15s;line-height:1}
+.bubble-actions button.emoji-btn:hover{background:var(--card2);transform:scale(1.2)}
 
-/* Lazy media placeholder */
 .media-placeholder{
   display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:12px;
   background:rgba(0,0,0,.18);border:1px dashed rgba(255,255,255,.2);cursor:pointer;
@@ -86,7 +88,18 @@
 .media-placeholder:hover{background:rgba(124,108,255,.2);border-color:var(--accent);transform:translateY(-1px)}
 .media-placeholder i{font-size:1.1rem}
 
-/* Input bar */
+.reactions-row{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
+.bubble-wrap.admin .reactions-row{justify-content:flex-end}
+.reaction-chip{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:99px;
+  background:var(--card2);border:1px solid var(--border);font-size:.78rem;font-weight:600;
+  cursor:pointer;transition:all .18s;user-select:none;
+}
+.reaction-chip:hover{background:var(--card3);transform:translateY(-1px);border-color:var(--accent)}
+.reaction-chip .cnt{font-size:.7rem;color:var(--muted);font-weight:700}
+.reaction-chip.pulse{animation:reactPulse .4s}
+@keyframes reactPulse{0%{transform:scale(1)}50%{transform:scale(1.25)}100%{transform:scale(1)}}
+
 .chat-input-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   padding:14px;margin-top:12px;box-shadow:var(--shadow)}
 .chat-textarea{flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);
@@ -106,7 +119,6 @@
 .btn-send:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(124,108,255,.55)}
 .btn-send:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
-/* File preview */
 .file-preview-card{display:none;align-items:center;gap:12px;padding:11px 14px;margin-bottom:10px;
   background:var(--card2);border:1px solid var(--accent);border-radius:12px;animation:msgIn .25s}
 .file-preview-thumb{width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0}
@@ -128,14 +140,6 @@
 .new-msg-flash{animation:flash 1.5s ease}
 @keyframes flash{0%,100%{background:transparent}30%{background:rgba(124,108,255,.15)}}
 
-.typing-indicator{display:inline-flex;gap:4px;padding:11px 15px;background:var(--card2);
-  border:1px solid var(--border);border-radius:18px;border-bottom-left-radius:5px;align-self:flex-start}
-.typing-indicator span{width:7px;height:7px;border-radius:50%;background:var(--muted);
-  animation:typing 1.4s infinite}
-.typing-indicator span:nth-child(2){animation-delay:.2s}
-.typing-indicator span:nth-child(3){animation-delay:.4s}
-@keyframes typing{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
-
 .blocked-banner{background:linear-gradient(90deg,var(--red),#c1303e);color:#fff;
   text-align:center;padding:11px 18px;border-radius:var(--radius);font-size:.82rem;margin-bottom:10px;
   font-weight:600;box-shadow:0 4px 14px rgba(255,77,94,.35)}
@@ -145,7 +149,6 @@
   transition:all .18s;font-family:inherit;font-weight:600}
 .load-more-btn:hover{background:var(--card3);color:var(--text);border-color:var(--accent)}
 
-/* Profile modal */
 .profile-modal-inner{max-width:380px;padding:0;overflow:hidden}
 .profile-cover{height:130px;background:var(--grad);position:relative}
 .profile-cover::after{content:'';position:absolute;inset:0;
@@ -166,7 +169,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="chat-shell">
+<div class="chat-shell" data-reactions="{{ reactions|tojson|forceescape }}">
   {% if meta.blocked %}
     <div class="blocked-banner">🚫 This user is blocked — they can't send messages or receive replies.</div>
   {% endif %}
@@ -239,6 +242,8 @@
             {% if m.edited %}<span style="font-size:.66rem;opacity:.6">(edited)</span>{% endif %}
           </div>
         {% endif %}
+
+        <div class="reactions-row" data-react-row="{{ m.msg_id }}"></div>
 
         <div class="bubble-meta">
           {{ (m.time or '') }}
@@ -342,6 +347,7 @@
 {% block scripts %}
 <script>
 const CID = "{{ cid }}";
+const REACTIONS = {{ reactions|tojson }};
 let lastTs = {{ (messages[-1].ts if messages else 0) or 0 }};
 let oldestTs = {{ (messages[0].ts if messages else 0) or 0 }};
 let hasMore = {{ 'true' if has_more else 'false' }};
@@ -471,11 +477,25 @@ function uploadWithProgress(url, formData, onProgress){
   });
 }
 
-// ── Rendering helpers ──────────────────────────────────────────────────────
 function esc(s){
   const d=document.createElement('div');
   d.textContent=s==null?'':s;
   return d.innerHTML;
+}
+function renderReactions(mid, reactions){
+  const row=document.querySelector(`[data-react-row="${mid}"]`);
+  if(!row) return;
+  row.innerHTML='';
+  if(!reactions || typeof reactions!=='object') return;
+  Object.entries(reactions).forEach(([emoji, count])=>{
+    if(!count) return;
+    const chip=document.createElement('span');
+    chip.className='reaction-chip';
+    chip.innerHTML=`<span>${emoji}</span><span class="cnt">${count}</span>`;
+    chip.title='Click to remove';
+    chip.onclick=()=>reactTo(mid, emoji, 'remove');
+    row.appendChild(chip);
+  });
 }
 function renderBubble(m){
   const isAdmin = m.from==='admin';
@@ -488,7 +508,10 @@ function renderBubble(m){
   let actions='';
   if(!m.deleted){
     actions='<div class="bubble-actions">';
-    if(isAdmin) actions+=`<button class="btn-ghost" style="font-size:.72rem" title="Edit"
+    REACTIONS.forEach(e=>{
+      actions+=`<button class="emoji-btn" title="React ${e}" onclick='reactTo(${JSON.stringify(m.msg_id)}, ${JSON.stringify(e)}, "add")'>${e}</button>`;
+    });
+    if(isAdmin) actions+=`<button class="btn-ghost" style="font-size:.72rem;margin-left:4px" title="Edit"
       onclick='editMsg(${JSON.stringify(m.msg_id)}, ${JSON.stringify(m.text||'')})'>
       <i class="fa-solid fa-pen"></i></button>`;
     actions+=`<button class="btn-ghost" style="font-size:.72rem;color:var(--red)" title="Delete"
@@ -523,12 +546,13 @@ function renderBubble(m){
     : '';
 
   wrap.innerHTML = actions + body +
+    `<div class="reactions-row" data-react-row="${esc(m.msg_id)}"></div>` +
     `<div class="bubble-meta">${esc(m.time||'')} ${tick}</div>`;
   return wrap;
 }
 function appendMessage(m){
-  // Insert before typing indicator if present
   container.appendChild(renderBubble(m));
+  renderReactions(m.msg_id, m.reactions||{});
   box.scrollTop = box.scrollHeight;
   if(m.ts && m.ts > lastTs) lastTs = m.ts;
   const countEl=document.getElementById('msgCount');
@@ -536,12 +560,15 @@ function appendMessage(m){
 }
 function prependMessages(msgs){
   const frag=document.createDocumentFragment();
-  msgs.forEach(m=>frag.appendChild(renderBubble(m)));
+  msgs.forEach(m=>{
+    const el=renderBubble(m);
+    frag.appendChild(el);
+    setTimeout(()=>renderReactions(m.msg_id, m.reactions||{}),0);
+  });
   container.insertBefore(frag, container.firstChild);
   if(msgs.length && msgs[0].ts && (oldestTs===0 || msgs[0].ts < oldestTs)) oldestTs = msgs[0].ts;
 }
 
-// ── Lazy media ─────────────────────────────────────────────────────────────
 function loadMedia(placeholder, kind, mid){
   placeholder.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Loading…';
   const url = `/chat/${CID}/file/${mid}/view`;
@@ -558,7 +585,6 @@ function loadMedia(placeholder, kind, mid){
   }
 }
 
-// ── Load older messages (pagination) ──────────────────────────────────────
 async function loadOlder(){
   if(!hasMore || !oldestTs) return;
   const btn=document.querySelector('.load-more-btn');
@@ -566,7 +592,6 @@ async function loadOlder(){
   try{
     const r=await fetch(`/chat/${CID}/messages?before_ts=${oldestTs}&limit={{ 30 }}`);
     const d=await r.json();
-    // Preserve scroll position
     const prevHeight = box.scrollHeight;
     prependMessages(d.messages);
     hasMore = d.has_more;
@@ -580,47 +605,55 @@ async function loadOlder(){
   }catch(e){ toast('Failed to load older messages','err'); }
 }
 
-// ── Poll for new messages ─────────────────────────────────────────────────
+// Initial reactions render for server-rendered bubbles
+{% for m in messages %}
+renderReactions({{ m.msg_id|tojson }}, {{ (m.reactions or {})|tojson }});
+{% endfor %}
+
 const readState={};
 document.querySelectorAll('[data-tick]').forEach(el=>{
   readState[el.dataset.tick]=el.textContent.trim()==='✓✓';
 });
+
 async function pollMessages(){
   try{
     const r=await fetch(`/chat/${CID}/messages?after_ts=${lastTs}`);
     const d=await r.json();
     (d.messages||[]).forEach(m=>{
       if(document.getElementById('msg_'+m.msg_id)){
-        // Update read state on existing admin messages
-        if(m.from==='admin'){
-          const el=document.querySelector(`[data-tick="${m.msg_id}"]`);
-          if(el && m.read && !readState[m.msg_id]){
-            el.textContent='✓✓'; el.style.color='var(--accent3)'; readState[m.msg_id]=true;
-          }
-          // Handle soft-delete from another tab
-          if(m.deleted){
-            const wrap=document.getElementById('msg_'+m.msg_id);
-            const bubble=wrap.querySelector('.bubble');
-            if(bubble && !bubble.classList.contains('deleted')){
-              bubble.className='bubble '+(m.from==='admin'?'admin':'user')+' deleted';
-              bubble.innerHTML='<i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted';
-              const a=wrap.querySelector('.bubble-actions');
-              if(a) a.remove();
-            }
-          }
-        }
+        updateExisting(m);
         return;
       }
       appendMessage(m);
       const wrap=document.getElementById('msg_'+m.msg_id);
-      if(wrap && m.from==='user'){
-        wrap.classList.add('new-msg-flash');
-        // Play subtle notification sound if page visible
-        try{ notifyNew(); }catch(e){}
-      }
+      if(wrap && m.from==='user'){ wrap.classList.add('new-msg-flash'); try{ notifyNew(); }catch(e){} }
     });
-    // Also refresh older read-tick state on user messages that got read
+    // Update existing messages (reactions, read state, soft delete)
+    (d.updates||[]).forEach(m=>updateExisting(m));
   }catch(e){}
+}
+function updateExisting(m){
+  const wrap=document.getElementById('msg_'+m.msg_id);
+  if(!wrap) return;
+  // read tick
+  if(m.from==='admin'){
+    const el=wrap.querySelector(`[data-tick="${m.msg_id}"]`);
+    if(el && m.read && !readState[m.msg_id]){
+      el.textContent='✓✓'; el.style.color='var(--accent3)'; readState[m.msg_id]=true;
+    }
+  }
+  // soft delete
+  if(m.deleted){
+    const bubble=wrap.querySelector('.bubble');
+    if(bubble && !bubble.classList.contains('deleted')){
+      bubble.className='bubble '+(m.from==='admin'?'admin':'user')+' deleted';
+      bubble.innerHTML='<i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted';
+      const a=wrap.querySelector('.bubble-actions');
+      if(a) a.remove();
+    }
+  }
+  // reactions
+  renderReactions(m.msg_id, m.reactions||{});
 }
 function notifyNew(){
   if(document.hidden) return;
@@ -637,7 +670,25 @@ function notifyNew(){
 }
 setInterval(pollMessages, 3500);
 
-// ── Edit / Delete / Block ─────────────────────────────────────────────────
+// ── Reactions ─────────────────────────────────────────────────────────────
+async function reactTo(mid, emoji, action){
+  try{
+    const fd=new FormData();
+    fd.append('emoji', emoji);
+    fd.append('action', action||'add');
+    const r=await fetch(`/chat/${CID}/message/${mid}/react`,{method:'POST',body:fd});
+    const d=await r.json();
+    if(d.ok){
+      renderReactions(mid, d.reactions||{});
+      const row=document.querySelector(`[data-react-row="${mid}"]`);
+      if(row){
+        const chip=row.querySelector('.reaction-chip');
+        if(chip){ chip.classList.add('pulse'); setTimeout(()=>chip.classList.remove('pulse'),420); }
+      }
+    } else toast(d.error||'Failed','err');
+  }catch(e){ toast('Error: '+e,'err'); }
+}
+
 function editMsg(mid, text){
   document.getElementById('editMid').value=mid;
   document.getElementById('editText').value=text;
@@ -654,10 +705,9 @@ async function submitEdit(){
     closeModal('editModal');
     const wrap=document.getElementById('msg_'+mid);
     const bubble=wrap.querySelector('.bubble');
-    // Update the text portion only (preserve media)
     const lastDiv=bubble.querySelector('div:last-child');
-    if(lastDiv) lastDiv.textContent=text;
-    else bubble.innerHTML+=`<div>${esc(text)}</div>`;
+    if(lastDiv && lastDiv.tagName==='DIV') lastDiv.textContent=text;
+    else bubble.insertAdjacentHTML('beforeend',`<div>${esc(text)}</div>`);
     toast('Message edited','ok');
   } else toast(d.error||'Failed','err');
 }
@@ -679,12 +729,11 @@ async function setBlock(blocked){
   try{
     const r=await fetch(`/chat/${CID}/${blocked?'block':'unblock'}`,{method:'POST'});
     const d=await r.json();
-    if(d.ok){ toast(blocked?'User blocked':'User unblocked', blocked?'ok':'ok'); setTimeout(()=>location.reload(),500); }
+    if(d.ok){ toast(blocked?'User blocked':'User unblocked','ok'); setTimeout(()=>location.reload(),500); }
     else toast(d.error||'Failed','err');
   }catch(e){ toast('Network error: '+e,'err'); }
 }
 
-// Bubble hover actions
 document.addEventListener('mouseover', e=>{
   const wrap=e.target.closest('.bubble-wrap');
   if(!wrap) return;
