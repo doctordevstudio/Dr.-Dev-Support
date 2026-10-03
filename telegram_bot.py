@@ -98,37 +98,93 @@ def get_user_photo_file_id(user_id: int) -> str:
 
 
 def send_admin_notify(chat_id: str, user_name: str, username: str, text: str, msg_type: str = "text"):
+    """Notify every configured admin chat id about a new incoming message.
+
+    Always logs the outcome so failures are visible in the Activity Log
+    instead of silently swallowed. Falls back to plain text (no parse mode)
+    if HTML parsing fails — so the admin always sees *something*.
+    """
     ids = config.ADMIN_CHAT_IDS()
-    if not ids or not bot:
+    if not ids:
+        fb.log_event("admin_notify_failed", chat_id=chat_id,
+                     error="ADMIN_CHAT_ID not configured (empty)")
+        print("[NOTIFY] ADMIN_CHAT_ID env var is empty — nothing to send to.")
         return
-    try:
-        chat_link = f"{config.PANEL_URL.rstrip('/')}/chat/{chat_id}" if config.PANEL_URL else ""
-        icon = {"photo": "🖼️", "video": "🎬", "document": "📄"}.get(msg_type, "💬")
-        preview_raw = text or f"[{msg_type}]"
-        preview = (preview_raw[:250] + "…") if len(preview_raw) > 250 else preview_raw
+    if not bot:
+        fb.log_event("admin_notify_failed", chat_id=chat_id,
+                     error="Bot not initialized (BOT_TOKEN missing)")
+        print("[NOTIFY] bot is None — BOT_TOKEN missing.")
+        return
 
-        notify_text = (
-            "📩 <b>New Support Message</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 <b>Name:</b> {h(user_name)}\n"
-            f"🔗 <b>Username:</b> {'@' + h(username) if username else '—'}\n"
-            f"🆔 <b>Chat ID:</b> <code>{h(chat_id)}</code>\n"
-            f"{icon} <b>Message:</b> {h(preview)}\n"
-            f"🕐 <b>Time (IST):</b> {now_str()}"
-        )
-        mk = None
-        if chat_link:
-            mk = types.InlineKeyboardMarkup()
-            mk.add(types.InlineKeyboardButton("🖥️ Open in Admin Panel", url=chat_link))
+    icon = {"photo": "🖼️", "video": "🎬", "document": "📄"}.get(msg_type, "💬")
+    preview_raw = text or f"[{msg_type}]"
+    preview = (preview_raw[:250] + "…") if len(preview_raw) > 250 else preview_raw
 
-        for admin_id in ids:
+    # Prefer PANEL_URL, fall back to nothing (button hidden if absent)
+    chat_link = ""
+    if config.PANEL_URL:
+        chat_link = f"{config.PANEL_URL.rstrip('/')}/chat/{chat_id}"
+
+    # HTML version (preferred)
+    html_text = (
+        "📩 <b>New Support Message</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Name:</b> {h(user_name)}\n"
+        f"🔗 <b>Username:</b> {'@' + h(username) if username else '—'}\n"
+        f"🆔 <b>Chat ID:</b> <code>{h(str(chat_id))}</code>\n"
+        f"{icon} <b>Message:</b> {h(preview)}\n"
+        f"🕐 <b>Time (IST):</b> {now_str()}"
+    )
+
+    # Plain-text fallback (no parse mode at all — guaranteed to send)
+    plain_text = (
+        "📩 New Support Message\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Name: {user_name}\n"
+        f"🔗 Username: {'@' + username if username else '—'}\n"
+        f"🆔 Chat ID: {chat_id}\n"
+        f"{icon} Message: {preview}\n"
+        f"🕐 Time (IST): {now_str()}"
+    )
+
+    mk = None
+    if chat_link:
+        mk = types.InlineKeyboardMarkup()
+        mk.add(types.InlineKeyboardButton("🖥️ Open in Admin Panel", url=chat_link))
+
+    for admin_id in ids:
+        sent = False
+        last_err = ""
+        # 1st try: HTML with reply_markup
+        try:
+            bot.send_message(admin_id, html_text, parse_mode="HTML", reply_markup=mk)
+            sent = True
+        except Exception as e:
+            last_err = f"html: {e}"
+            print(f"[NOTIFY] {admin_id} HTML failed: {e}")
+            # 2nd try: HTML without markup (sometimes the URL button is the problem)
             try:
-                bot.send_message(admin_id, notify_text, parse_mode="HTML", reply_markup=mk)
-            except Exception as e:
-                print(f"[NOTIFY] {admin_id}: {e}")
-    except Exception as e:
-        print(f"[NOTIFY] {e}")
+                bot.send_message(admin_id, html_text, parse_mode="HTML")
+                sent = True
+                last_err = ""
+            except Exception as e2:
+                last_err = f"html-nomarkup: {e2}"
+                print(f"[NOTIFY] {admin_id} HTML-nomarkup failed: {e2}")
+                # 3rd try: plain text, no parse mode, no markup — cannot fail on formatting
+                try:
+                    bot.send_message(admin_id, plain_text)
+                    sent = True
+                    last_err = ""
+                except Exception as e3:
+                    last_err = f"plain: {e3}"
+                    print(f"[NOTIFY] {admin_id} plain failed: {e3}")
 
+        if sent:
+            fb.log_event("admin_notified", chat_id=chat_id,
+                         admin_id=str(admin_id), msg_type=msg_type)
+        else:
+            fb.log_event("admin_notify_failed", chat_id=chat_id,
+                         admin_id=str(admin_id), error=last_err)
 
 def mark_admin_msgs_seen(chat_id: str):
     msgs = fb.get(f"support/{chat_id}/messages") or {}
