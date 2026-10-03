@@ -1,7 +1,7 @@
 """
 app.py — Support Bot Admin Panel (Flask)
 """
-import io
+import json
 import math
 import secrets
 import threading
@@ -11,7 +11,7 @@ from functools import wraps
 import requests
 from flask import (
     Flask, Response, jsonify, redirect, render_template, request,
-    session, url_for, flash,
+    session, url_for, flash, stream_with_context,
 )
 
 import config
@@ -129,7 +129,7 @@ def _filter_chats(items, q: str):
     return out
 
 
-# ── Chat list (dashboard) ─────────────────────────────────────────────────────
+# ── Chat list ─────────────────────────────────────────────────────────────────
 @app.route("/")
 @login_required
 def chats():
@@ -159,7 +159,6 @@ def chats():
 @app.route("/api/chats")
 @login_required
 def api_chats():
-    """JSON endpoint used by the SPA-style navigation."""
     q = request.args.get("q", "").strip()
     page = max(1, int(request.args.get("page", 1)))
     per = config.CHATS_PER_PAGE
@@ -194,7 +193,6 @@ def _get_meta(cid):
 def chat_view(cid):
     meta = _get_meta(cid)
     all_msgs = _get_all_messages(cid)
-    # Mark user messages as read.
     raw = fb.get(f"support/{cid}/messages") or {}
     for mid, m in raw.items():
         if m.get("from") == "user" and not m.get("read"):
@@ -203,7 +201,6 @@ def chat_view(cid):
 
     per = config.MESSAGES_PER_PAGE
     total = len(all_msgs)
-    # Show newest N messages.
     slice_start = max(0, total - per)
     messages = all_msgs[slice_start:]
 
@@ -214,14 +211,13 @@ def chat_view(cid):
         messages=messages,
         total=total,
         has_more=slice_start > 0,
+        reactions=tg.REACTIONS,
     )
 
 
 @app.route("/chat/<cid>/messages")
 @login_required
 def chat_messages_json(cid):
-    """Paged messages. `before_ts` = fetch older than this timestamp.
-    `after_ts` = fetch newer than this timestamp (for incremental polling)."""
     before_ts = request.args.get("before_ts", type=int)
     after_ts = request.args.get("after_ts", type=int)
     limit = request.args.get("limit", default=config.MESSAGES_PER_PAGE, type=int)
@@ -231,25 +227,19 @@ def chat_messages_json(cid):
 
     if after_ts is not None:
         new_msgs = [m for m in all_msgs if m.get("ts", 0) > after_ts]
-        return jsonify({"messages": new_msgs, "has_more": False, "total": total})
+        # Include updates (read state / reactions) for existing messages too
+        updates = [m for m in all_msgs if m.get("ts", 0) <= after_ts]
+        return jsonify({"messages": new_msgs, "updates": updates, "has_more": False, "total": total})
 
     if before_ts is not None:
         older = [m for m in all_msgs if m.get("ts", 0) < before_ts]
         slice_start = max(0, len(older) - limit)
         page = older[slice_start:]
-        return jsonify({
-            "messages": page,
-            "has_more": slice_start > 0,
-            "total": total,
-        })
+        return jsonify({"messages": page, "has_more": slice_start > 0, "total": total})
 
     slice_start = max(0, total - limit)
     page = all_msgs[slice_start:]
-    return jsonify({
-        "messages": page,
-        "has_more": slice_start > 0,
-        "total": total,
-    })
+    return jsonify({"messages": page, "has_more": slice_start > 0, "total": total})
 
 
 @app.route("/chat/<cid>/send", methods=["POST"])
@@ -307,8 +297,6 @@ def chat_file_download(cid, mid):
 @app.route("/chat/<cid>/file/<mid>/view")
 @login_required
 def chat_file_view(cid, mid):
-    """Inline (non-download) view for images/videos — used by the lazy
-    'load image' placeholder click."""
     msgs = fb.get(f"support/{cid}/messages") or {}
     m = msgs.get(mid)
     if not m:
@@ -333,12 +321,34 @@ def chat_file_view(cid, mid):
 @app.route("/avatar/<cid>")
 @login_required
 def avatar(cid):
-    """Proxy Telegram profile photo so we control URL + content-type."""
+    """Proxy Telegram profile photo. If the cached file_id no longer resolves
+    (Telegram occasionally purges old files, or the URL expired), re-fetch
+    it once and retry."""
     meta = fb.get(f"support/{cid}/meta") or {}
     file_id = meta.get("photo_file_id") or ""
     if not file_id:
+        # Try to fetch it now
+        try:
+            uid = int(cid)
+            file_id = tg.get_user_photo_file_id(uid)
+            if file_id:
+                fb.patch(f"support/{cid}/meta", {"photo_file_id": file_id})
+        except Exception:
+            pass
+    if not file_id:
         return ("", 204)
+
     url = tg.refresh_file_url(file_id)
+    if not url:
+        # Try one re-fetch to recover from a stale file_id
+        try:
+            uid = int(cid)
+            new_id = tg.get_user_photo_file_id(uid)
+            if new_id and new_id != file_id:
+                fb.patch(f"support/{cid}/meta", {"photo_file_id": new_id})
+                url = tg.refresh_file_url(new_id)
+        except Exception:
+            pass
     if not url:
         return ("", 204)
     try:
@@ -368,6 +378,16 @@ def chat_delete(cid, mid):
     return jsonify(tg.soft_delete_message(cid, mid, deleted_by="admin"))
 
 
+@app.route("/chat/<cid>/message/<mid>/react", methods=["POST"])
+@login_required
+def chat_react(cid, mid):
+    emoji = request.form.get("emoji", "").strip()
+    action = request.form.get("action", "add")
+    if action == "remove":
+        return jsonify(tg.remove_reaction(cid, mid, emoji))
+    return jsonify(tg.set_reaction(cid, mid, emoji))
+
+
 @app.route("/chat/<cid>/block", methods=["POST"])
 @login_required
 def chat_block(cid):
@@ -386,6 +406,95 @@ def unread_count():
     items = _load_all_chats()
     total = sum(c.get("unread", 0) for c in items)
     return jsonify({"count": total})
+
+
+# ── Broadcast ─────────────────────────────────────────────────────────────────
+@app.route("/broadcast")
+@login_required
+def broadcast_view():
+    return render_template("broadcast.html")
+
+
+@app.route("/broadcast/send")
+@login_required
+def broadcast_send():
+    """Server-Sent Events stream — yields progress as we send."""
+    text = request.args.get("text", "")
+    fmt = request.args.get("fmt", "html")
+    if not text.strip():
+        return Response("data: {\"error\": \"Empty message\"}\n\n", mimetype="text/event-stream")
+    if fmt not in ("html", "text"):
+        fmt = "html"
+
+    def generate():
+        try:
+            for sent, total, cid, err in tg.broadcast_message(text, fmt):
+                payload = {"sent": sent, "total": total, "chat_id": cid, "error": err}
+                yield f"data: {json.dumps(payload)}\n\n"
+            yield "data: {\"done\": true}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/broadcast/count")
+@login_required
+def broadcast_count():
+    ids = tg._all_user_chat_ids()
+    return jsonify({"count": len(ids)})
+
+
+# ── Welcome message editor ───────────────────────────────────────────────────
+@app.route("/welcome", methods=["GET"])
+@login_required
+def welcome_view():
+    msg = tg.get_welcome_message()
+    fmt = tg.get_welcome_format()
+    return render_template("welcome.html", welcome=msg, fmt=fmt)
+
+
+@app.route("/welcome/save", methods=["POST"])
+@login_required
+def welcome_save():
+    msg = request.form.get("message", "")
+    fmt = request.form.get("format", "html")
+    if fmt not in ("html", "text"):
+        fmt = "html"
+    fb.put("settings/welcome/message", msg)
+    fb.put("settings/welcome/format", fmt)
+    fb.log_event("welcome_updated", fmt=fmt, length=len(msg))
+    return jsonify({"ok": True})
+
+
+@app.route("/welcome/preview", methods=["POST"])
+@login_required
+def welcome_preview():
+    """Send the welcome message to the admin's own chat so they can see it
+    on Telegram with real formatting."""
+    msg = request.form.get("message", "")
+    fmt = request.form.get("format", "html")
+    ids = config.ADMIN_CHAT_IDS()
+    if not ids:
+        return jsonify({"error": "No ADMIN_CHAT_ID configured"})
+    if not tg.bot:
+        return jsonify({"error": "Bot not configured"})
+    sent = []
+    errors = []
+    for admin_id in ids:
+        try:
+            if fmt == "html":
+                tg.bot.send_message(admin_id, msg, parse_mode="HTML")
+            else:
+                tg.bot.send_message(admin_id, msg, parse_mode=None)
+            sent.append(admin_id)
+        except Exception as e:
+            errors.append(f"{admin_id}: {e}")
+    return jsonify({"ok": True, "sent_to": sent, "errors": errors})
 
 
 # ── Activity log viewer ───────────────────────────────────────────────────────
