@@ -154,6 +154,40 @@ def chats():
         pages=pages,
         q=q,
     )
+# ── Debug: send a test admin notification ────────────────────────────────────
+@app.route("/debug/notify")
+@login_required
+def debug_notify():
+    """Hit this once while logged in to verify admin notifications work.
+    Shows exactly which ADMIN_CHAT_IDs are configured and what Telegram
+    said for each. Safe — only visible to a logged-in admin."""
+    ids = config.ADMIN_CHAT_IDS()
+    if not ids:
+        return jsonify({
+            "ok": False,
+            "error": "ADMIN_CHAT_ID is empty. Set it in Render → Environment, e.g. 123456789 or '123,456'."
+        })
+    if not tg.bot:
+        return jsonify({
+            "ok": False,
+            "error": "Bot is not initialized — BOT_TOKEN missing or invalid."
+        })
+
+    results = []
+    for admin_id in ids:
+        try:
+            tg.bot.send_message(
+                admin_id,
+                "✅ <b>Test notification</b>\n"
+                "If you're reading this in your admin chat, notifications work.\n"
+                f"🕐 {tg.now_str()}",
+                parse_mode="HTML",
+            )
+            results.append({"admin_id": admin_id, "ok": True})
+        except Exception as e:
+            results.append({"admin_id": admin_id, "ok": False, "error": str(e)})
+    fb.log_event("admin_notify_test", results=str(results))
+    return jsonify({"ok": True, "admin_ids_configured": ids, "results": results})
 
 
 @app.route("/api/chats")
