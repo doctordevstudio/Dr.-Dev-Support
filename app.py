@@ -129,7 +129,6 @@ def _filter_chats(items, q: str):
     return out
 
 
-# ── Chat list ─────────────────────────────────────────────────────────────────
 @app.route("/")
 @login_required
 def chats():
@@ -154,40 +153,6 @@ def chats():
         pages=pages,
         q=q,
     )
-# ── Debug: send a test admin notification ────────────────────────────────────
-@app.route("/debug/notify")
-@login_required
-def debug_notify():
-    """Hit this once while logged in to verify admin notifications work.
-    Shows exactly which ADMIN_CHAT_IDs are configured and what Telegram
-    said for each. Safe — only visible to a logged-in admin."""
-    ids = config.ADMIN_CHAT_IDS()
-    if not ids:
-        return jsonify({
-            "ok": False,
-            "error": "ADMIN_CHAT_ID is empty. Set it in Render → Environment, e.g. 123456789 or '123,456'."
-        })
-    if not tg.bot:
-        return jsonify({
-            "ok": False,
-            "error": "Bot is not initialized — BOT_TOKEN missing or invalid."
-        })
-
-    results = []
-    for admin_id in ids:
-        try:
-            tg.bot.send_message(
-                admin_id,
-                "✅ <b>Test notification</b>\n"
-                "If you're reading this in your admin chat, notifications work.\n"
-                f"🕐 {tg.now_str()}",
-                parse_mode="HTML",
-            )
-            results.append({"admin_id": admin_id, "ok": True})
-        except Exception as e:
-            results.append({"admin_id": admin_id, "ok": False, "error": str(e)})
-    fb.log_event("admin_notify_test", results=str(results))
-    return jsonify({"ok": True, "admin_ids_configured": ids, "results": results})
 
 
 @app.route("/api/chats")
@@ -261,8 +226,8 @@ def chat_messages_json(cid):
 
     if after_ts is not None:
         new_msgs = [m for m in all_msgs if m.get("ts", 0) > after_ts]
-        # Include updates (read state / reactions) for existing messages too
-        updates = [m for m in all_msgs if m.get("ts", 0) <= after_ts]
+        # Send full state of every message so reactions/read/delete sync
+        updates = all_msgs
         return jsonify({"messages": new_msgs, "updates": updates, "has_more": False, "total": total})
 
     if before_ts is not None:
@@ -355,13 +320,9 @@ def chat_file_view(cid, mid):
 @app.route("/avatar/<cid>")
 @login_required
 def avatar(cid):
-    """Proxy Telegram profile photo. If the cached file_id no longer resolves
-    (Telegram occasionally purges old files, or the URL expired), re-fetch
-    it once and retry."""
     meta = fb.get(f"support/{cid}/meta") or {}
     file_id = meta.get("photo_file_id") or ""
     if not file_id:
-        # Try to fetch it now
         try:
             uid = int(cid)
             file_id = tg.get_user_photo_file_id(uid)
@@ -374,7 +335,6 @@ def avatar(cid):
 
     url = tg.refresh_file_url(file_id)
     if not url:
-        # Try one re-fetch to recover from a stale file_id
         try:
             uid = int(cid)
             new_id = tg.get_user_photo_file_id(uid)
@@ -418,8 +378,8 @@ def chat_react(cid, mid):
     emoji = request.form.get("emoji", "").strip()
     action = request.form.get("action", "add")
     if action == "remove":
-        return jsonify(tg.remove_reaction(cid, mid, emoji))
-    return jsonify(tg.set_reaction(cid, mid, emoji))
+        return jsonify(tg.remove_reaction(cid, mid, emoji, actor="admin"))
+    return jsonify(tg.set_reaction(cid, mid, emoji, actor="admin"))
 
 
 @app.route("/chat/<cid>/block", methods=["POST"])
@@ -446,34 +406,85 @@ def unread_count():
 @app.route("/broadcast")
 @login_required
 def broadcast_view():
-    return render_template("broadcast.html")
+    raw = fb.get("broadcasts") or {}
+    items = sorted(raw.values(), key=lambda b: b.get("ts", 0), reverse=True) if isinstance(raw, dict) else []
+    return render_template("broadcast.html", broadcasts=items)
 
 
-@app.route("/broadcast/send")
+@app.route("/broadcast/start", methods=["POST"])
 @login_required
-def broadcast_send():
-    """Server-Sent Events stream — yields progress as we send."""
-    text = request.args.get("text", "")
-    fmt = request.args.get("fmt", "html")
+def broadcast_start():
+    """Non-blocking: kicks off a background thread and returns job_id."""
+    text = request.form.get("text", "")
+    fmt = request.form.get("fmt", "html")
     if not text.strip():
-        return Response("data: {\"error\": \"Empty message\"}\n\n", mimetype="text/event-stream")
+        return jsonify({"error": "Empty message"}), 400
     if fmt not in ("html", "text"):
         fmt = "html"
+    result = tg.start_broadcast(text, fmt)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
-    def generate():
-        try:
-            for sent, total, cid, err in tg.broadcast_message(text, fmt):
-                payload = {"sent": sent, "total": total, "chat_id": cid, "error": err}
-                yield f"data: {json.dumps(payload)}\n\n"
-            yield "data: {\"done\": true}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+@app.route("/broadcast/status/<job_id>")
+@login_required
+def broadcast_status(job_id):
+    """Polled by the frontend every 700ms. Tiny JSON, fast."""
+    job = tg.get_broadcast_job(job_id)
+    if not job:
+        return jsonify({"error": "Unknown job"}), 404
+    return jsonify({
+        "job_id": job_id,
+        "total": job.get("total", 0),
+        "sent": job.get("sent", 0),
+        "progress": job.get("progress", 0),
+        "failed": job.get("failed", []),
+        "done": job.get("done", False),
+        "last_chat": job.get("last_chat"),
+    })
+
+
+@app.route("/broadcast/finish/<job_id>", methods=["POST"])
+@login_required
+def broadcast_finish(job_id):
+    tg.mark_broadcast_finished_in_db(job_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/broadcast/delete/<job_id>", methods=["POST"])
+@login_required
+def broadcast_delete(job_id):
+    """Archive (soft-delete) a broadcast record. Never removes from DB."""
+    fb.patch(f"broadcasts/{job_id}", {"archived": True, "archived_at": fb.now_ist()})
+    fb.log_event("broadcast_archived", job_id=job_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/broadcast/update/<job_id>", methods=["POST"])
+@login_required
+def broadcast_update(job_id):
+    """Edit the text/format of a stored broadcast record (does not re-send)."""
+    text = request.form.get("text", "")
+    fmt = request.form.get("fmt", "html")
+    if fmt not in ("html", "text"):
+        fmt = "html"
+    fb.patch(f"broadcasts/{job_id}", {"text": text, "fmt": fmt, "edited_at": fb.now_ist()})
+    fb.log_event("broadcast_edited", job_id=job_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/broadcast/resend/<job_id>", methods=["POST"])
+@login_required
+def broadcast_resend(job_id):
+    """Re-send the stored broadcast as a new job."""
+    rec = fb.get(f"broadcasts/{job_id}") or {}
+    text = rec.get("text", "")
+    fmt = rec.get("fmt", "html")
+    if not text:
+        return jsonify({"error": "Nothing to resend"}), 400
+    result = tg.start_broadcast(text, fmt)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @app.route("/broadcast/count")
@@ -508,8 +519,6 @@ def welcome_save():
 @app.route("/welcome/preview", methods=["POST"])
 @login_required
 def welcome_preview():
-    """Send the welcome message to the admin's own chat so they can see it
-    on Telegram with real formatting."""
     msg = request.form.get("message", "")
     fmt = request.form.get("format", "html")
     ids = config.ADMIN_CHAT_IDS()
@@ -538,6 +547,36 @@ def logs_view():
     raw = fb.get("logs") or {}
     items = sorted(raw.values(), key=lambda e: e.get("ts", 0), reverse=True)[:500]
     return render_template("logs.html", logs=items)
+
+
+# ── Debug ─────────────────────────────────────────────────────────────────────
+@app.route("/debug/notify")
+@login_required
+def debug_notify():
+    ids = config.ADMIN_CHAT_IDS()
+    if not ids:
+        return jsonify({
+            "ok": False,
+            "error": "ADMIN_CHAT_ID is empty. Set it in Render → Environment, e.g. 123456789 or '123,456'."
+        })
+    if not tg.bot:
+        return jsonify({"ok": False, "error": "Bot is not initialized — BOT_TOKEN missing or invalid."})
+
+    results = []
+    for admin_id in ids:
+        try:
+            tg.bot.send_message(
+                admin_id,
+                "✅ <b>Test notification</b>\n"
+                "If you're reading this in your admin chat, notifications work.\n"
+                f"🕐 {tg.now_str()}",
+                parse_mode="HTML",
+            )
+            results.append({"admin_id": admin_id, "ok": True})
+        except Exception as e:
+            results.append({"admin_id": admin_id, "ok": False, "error": str(e)})
+    fb.log_event("admin_notify_test", results=str(results))
+    return jsonify({"ok": True, "admin_ids_configured": ids, "results": results})
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
