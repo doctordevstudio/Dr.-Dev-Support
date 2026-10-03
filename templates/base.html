@@ -37,16 +37,12 @@
 html,body{height:100%}
 body{font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--text);
   display:flex;min-height:100vh;overflow-x:hidden;font-feature-settings:"cv11","ss01"}
-
-/* Ambient animated glow */
 body::before{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
     radial-gradient(600px 400px at 10% -10%, rgba(124,108,255,.08), transparent 60%),
     radial-gradient(500px 400px at 90% 110%, rgba(255,92,156,.07), transparent 60%);
 }
-
-/* ── Sidebar ─────────────────────────────────────────────────────────── */
 .sidebar{
   width:244px;background:var(--sidebar);border-right:1px solid var(--border);
   display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto;
@@ -81,8 +77,6 @@ body::before{
   padding:2px 8px;border-radius:99px;font-weight:700;min-width:20px;text-align:center;
   box-shadow:0 2px 8px rgba(124,108,255,.4);
 }
-
-/* ── Main ─────────────────────────────────────────────────────────────── */
 .main{margin-left:244px;flex:1;display:flex;flex-direction:column;min-height:100vh;
   transition:margin .3s;position:relative;z-index:1}
 .topbar{
@@ -101,7 +95,6 @@ body::before{
 .content{padding:26px;flex:1;max-width:1400px;width:100%;margin:0 auto;animation:fadeIn .35s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
-/* ── Buttons ─────────────────────────────────────────────────────────── */
 .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:var(--radius-sm);
   font-size:.82rem;font-weight:600;cursor:pointer;border:none;text-decoration:none;
   transition:all .18s cubic-bezier(.4,0,.2,1);font-family:inherit;letter-spacing:-.01em}
@@ -115,36 +108,25 @@ body::before{
 .btn-sm{padding:6px 12px;font-size:.74rem}
 .btn-ghost{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px 10px;border-radius:8px;transition:all .15s}
 .btn-ghost:hover{background:var(--card2);color:var(--text)}
-
-/* ── Cards ───────────────────────────────────────────────────────────── */
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
 .card-hover{transition:all .2s}
 .card-hover:hover{transform:translateY(-2px);border-color:var(--border2);box-shadow:0 12px 40px rgba(0,0,0,.4)}
-
-/* ── Forms ───────────────────────────────────────────────────────────── */
 .form-control{width:100%;background:var(--card2);border:1px solid var(--border);
   color:var(--text);padding:11px 14px;border-radius:var(--radius-sm);font-size:.86rem;
   font-family:inherit;transition:all .18s}
 .form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,108,255,.15)}
 .form-control::placeholder{color:var(--muted2)}
-
-/* ── Alerts ──────────────────────────────────────────────────────────── */
 .alert{padding:11px 16px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:.83rem;
   display:flex;align-items:center;gap:10px;animation:fadeIn .3s ease}
 .alert-success{background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.25);color:var(--green)}
 .alert-danger{background:rgba(255,77,94,.12);border:1px solid rgba(255,77,94,.25);color:var(--red)}
-
-/* ── Empty state ─────────────────────────────────────────────────────── */
 .empty-state{text-align:center;padding:70px 20px;color:var(--muted)}
 .empty-state i{font-size:3rem;margin-bottom:18px;opacity:.35;display:block;
   background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .empty-state p{font-size:.9rem}
 .empty-state p.sub{font-size:.78rem;margin-top:6px;color:var(--muted2)}
-
 code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
   font-family:'JetBrains Mono',ui-monospace,monospace;border:1px solid var(--border);color:var(--accent3)}
-
-/* ── Modals ──────────────────────────────────────────────────────────── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   z-index:999;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s}
@@ -157,8 +139,6 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
   color:var(--muted);font-size:.9rem;cursor:pointer;width:30px;height:30px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;transition:all .15s}
 .modal-close:hover{background:var(--red);color:#fff;transform:rotate(90deg)}
-
-/* ── Toast ───────────────────────────────────────────────────────────── */
 #toastWrap{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
 .toast{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);
   padding:12px 18px;font-size:.83rem;display:flex;align-items:center;gap:10px;
@@ -168,12 +148,9 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
 .toast.err{border-left:3px solid var(--red)}
 .toast.info{border-left:3px solid var(--accent)}
 @keyframes toastIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
-
-/* ── Skeleton ────────────────────────────────────────────────────────── */
 .skeleton{background:linear-gradient(90deg,var(--card2) 25%,var(--card3) 50%,var(--card2) 75%);
   background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:6px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-
 @media(max-width:860px){
   .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0);box-shadow:0 0 60px rgba(0,0,0,.5)}
@@ -201,6 +178,13 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
       <i class="fa-solid fa-comments"></i> Conversations
       <span id="unreadBadge" class="badge-nav" style="display:none">0</span>
     </a>
+    <a href="{{ url_for('broadcast_view') }}" data-nav class="nav-link {% if request.endpoint=='broadcast_view' %}active{% endif %}">
+      <i class="fa-solid fa-tower-broadcast"></i> Broadcast
+    </a>
+    <a href="{{ url_for('welcome_view') }}" data-nav class="nav-link {% if request.endpoint=='welcome_view' %}active{% endif %}">
+      <i class="fa-solid fa-hand-sparkles"></i> Welcome Message
+    </a>
+    <div class="nav-section" style="margin-top:6px">Analytics</div>
     <a href="{{ url_for('logs_view') }}" data-nav class="nav-link {% if request.endpoint=='logs_view' %}active{% endif %}">
       <i class="fa-solid fa-list-check"></i> Activity Log
     </a>
@@ -266,7 +250,6 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
 });
 
-// Toast
 function toast(msg, type='info', ms=2800){
   const wrap=document.getElementById('toastWrap');
   const el=document.createElement('div');
@@ -279,7 +262,6 @@ function toast(msg, type='info', ms=2800){
     setTimeout(()=>el.remove(),320);},ms);
 }
 
-// Unread badge
 async function refreshUnreadBadge(){
   try{
     const r=await fetch('/unread_count');
@@ -293,7 +275,6 @@ async function refreshUnreadBadge(){
 refreshUnreadBadge();
 setInterval(refreshUnreadBadge, 8000);
 
-// SPA-like nav
 document.addEventListener('click', e=>{
   const a = e.target.closest('a[data-nav]');
   if(!a) return;
@@ -319,7 +300,6 @@ function navigate(url){
       if(nc){
         document.getElementById('mainContent').innerHTML=nc.innerHTML;
         document.getElementById('mainContent').style.opacity='1';
-        // Re-run scripts in content
         document.querySelectorAll('#mainContent script').forEach(s=>{
           const n=document.createElement('script');
           n.textContent=s.textContent;
@@ -327,7 +307,10 @@ function navigate(url){
         });
       }
       if(nt) document.querySelector('.topbar h1').innerHTML=nt.innerHTML;
-      // re-init any page hooks
+      // Update active nav
+      document.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));
+      const match=document.querySelector(`.nav-link[href="${url}"]`);
+      if(match) match.classList.add('active');
       if(window.__pageInit) window.__pageInit();
     })
     .catch(()=>{location.href=url});
