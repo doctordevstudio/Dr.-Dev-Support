@@ -36,10 +36,10 @@ PORT = int(os.environ.get("PORT", 5000))
 PANEL_NAME = _clean(os.environ.get("PANEL_NAME", "Support Panel"))
 PANEL_URL = _clean(os.environ.get("PANEL_URL", ""))
 
-# ── Greetings ────────────────────────────────────────────────────────────────
-WELCOME_MESSAGE = os.environ.get(
+# ── Greetings (defaults; runtime value lives in Firebase /settings/welcome) ──
+DEFAULT_WELCOME_MESSAGE = os.environ.get(
     "WELCOME_MESSAGE",
-    "👋 *Welcome to Support!*\n"
+    "👋 <b>Welcome to Support!</b>\n"
     "Please describe your issue and we'll get back to you shortly.\n\n"
     "📸 You can also send photos, videos or files.",
 )
@@ -62,7 +62,6 @@ LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", 5))
 LOGIN_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_SECONDS", 300))
 
 # ── Uploads ──────────────────────────────────────────────────────────────────
-# 49 MB per project requirement (bot send limit is 50 MB, keep headroom).
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", 49))
 
 # ── Pagination ───────────────────────────────────────────────────────────────
