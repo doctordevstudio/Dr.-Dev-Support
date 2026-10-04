@@ -1,190 +1,205 @@
 {% extends "base.html" %}
 {% block title %}Conversations{% endblock %}
 {% block page_title %}💬 Conversations{% endblock %}
-{% block content %}
-<div class="chats-header" style="display:flex;align-items:center;justify-content:space-between;
-     margin-bottom:22px;flex-wrap:wrap;gap:14px">
-  <div>
-    <h2 style="font-size:1.3rem;font-weight:800;letter-spacing:-.02em;
-        background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
-      {{ total }} Conversation{{ '' if total==1 else 's' }}
-    </h2>
-    <p style="color:var(--muted);font-size:.78rem;margin-top:4px">
-      {% if total_unread %}<span style="color:var(--accent2);font-weight:600">{{ total_unread }} unread</span> · {% endif %}
-      Page {{ page }} of {{ pages }}
-    </p>
-  </div>
-  <div style="position:relative;min-width:280px;flex:1;max-width:400px">
-    <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:14px;top:50%;
-       transform:translateY(-50%);color:var(--muted);font-size:.85rem"></i>
-    <input type="text" id="searchBox" class="form-control" style="padding-left:38px"
-       placeholder="Search by name, @username or chat ID…" value="{{ q }}"/>
-  </div>
-</div>
-
-<div id="chatsList">
-{% if chats %}
-<div style="display:flex;flex-direction:column;gap:8px">
-  {% for ch in chats %}
-  <a href="{{ url_for('chat_view', cid=ch.chat_id) }}"
-     class="chat-row card card-hover"
-     style="display:flex;align-items:center;gap:14px;padding:14px 18px;text-decoration:none;
-            color:inherit;animation:rowIn .4s ease backwards;animation-delay:{{ loop.index0 * 0.03 }}s;
-            {% if ch.unread %}border-color:rgba(124,108,255,.35);
-            background:linear-gradient(90deg,rgba(124,108,255,.08),var(--card) 40%){% endif %}">
-    <div style="width:52px;height:52px;border-radius:50%;flex-shrink:0;position:relative">
-      <div style="width:52px;height:52px;border-radius:50%;overflow:hidden;
-           background:var(--grad);display:flex;align-items:center;justify-content:center;
-           font-weight:700;font-size:1.1rem;color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.35)">
-        {% if ch.photo_file_id %}
-          <img src="{{ url_for('avatar', cid=ch.chat_id) }}" alt=""
-               style="width:52px;height:52px;object-fit:cover"
-               onerror="this.style.display='none';this.parentElement.innerHTML='{{ (ch.user_name or '?')[0]|upper }}'"/>
-        {% else %}
-          {{ (ch.user_name or '?')[0]|upper }}
-        {% endif %}
-      </div>
-      {% if ch.blocked %}
-        <span title="Blocked" style="position:absolute;bottom:-2px;right:-2px;background:var(--red);
-             color:#fff;border-radius:50%;font-size:.6rem;width:20px;height:20px;
-             display:flex;align-items:center;justify-content:center;border:2px solid var(--card)">🚫</span>
-      {% elif ch.unread %}
-        <span style="position:absolute;top:-2px;right:-2px;background:var(--accent2);color:#fff;
-             border-radius:99px;font-size:.66rem;padding:2px 7px;font-weight:700;min-width:20px;
-             text-align:center;box-shadow:0 2px 8px rgba(255,92,156,.5);border:2px solid var(--card)">
-          {{ ch.unread }}
-        </span>
-      {% endif %}
-    </div>
-    <div style="flex:1;min-width:0">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <span style="font-weight:{% if ch.unread %}700{% else %}600{% endif %};font-size:.92rem;
-              overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:7px">
-          {{ ch.user_name or ch.chat_id }}
-          {% if ch.username %}<span style="color:var(--muted);font-weight:400;font-size:.76rem">@{{ ch.username }}</span>{% endif %}
-          {% if ch.blocked %}<span style="font-size:.6rem;background:var(--red);color:#fff;
-              padding:2px 7px;border-radius:20px;font-weight:700;letter-spacing:.04em">BLOCKED</span>{% endif %}
-        </span>
-        <span style="font-size:.72rem;color:var(--muted);flex-shrink:0">{{ (ch.last_time or '') }}</span>
-      </div>
-      {% set preview = (ch.last_message or 'No messages yet') | replace('\n',' ') %}
-      {% set preview = preview[:70] + ('…' if preview|length > 70 else '') %}
-      <div style="font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;
-           color:{% if ch.unread %}var(--text){% else %}var(--muted){% endif %}">{{ preview }}</div>
-    </div>
-    <i class="fa-solid fa-chevron-right" style="color:var(--muted);font-size:.78rem"></i>
-  </a>
-  {% endfor %}
-</div>
-
-{% if pages > 1 %}
-<div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px;flex-wrap:wrap">
-  {% if page > 1 %}
-    <a href="?page={{ page-1 }}{% if q %}&q={{ q }}{% endif %}" data-nav class="btn btn-secondary btn-sm">
-      <i class="fa-solid fa-chevron-left"></i> Prev</a>
-  {% endif %}
-  {% for p in range(1, pages+1) %}
-    {% if p == page %}
-      <span class="btn btn-primary btn-sm" style="cursor:default">{{ p }}</span>
-    {% elif p <= 2 or p > pages-2 or (p >= page-1 and p <= page+1) %}
-      <a href="?page={{ p }}{% if q %}&q={{ q }}{% endif %}" data-nav class="btn btn-secondary btn-sm">{{ p }}</a>
-    {% elif p == 3 and page > 4 %}
-      <span style="color:var(--muted)">…</span>
-    {% elif p == pages-2 and page < pages-3 %}
-      <span style="color:var(--muted)">…</span>
-    {% endif %}
-  {% endfor %}
-  {% if page < pages %}
-    <a href="?page={{ page+1 }}{% if q %}&q={{ q }}{% endif %}" data-nav class="btn btn-secondary btn-sm">
-      Next <i class="fa-solid fa-chevron-right"></i></a>
-  {% endif %}
-</div>
-{% endif %}
-
-{% else %}
-<div class="empty-state">
-  <i class="fa-solid fa-headset"></i>
-  <p>{% if q %}No matches for "{{ q }}"{% else %}No conversations yet{% endif %}</p>
-  <p class="sub">{% if q %}Try a different search term{% else %}Users will appear here when they message your bot{% endif %}</p>
-</div>
-{% endif %}
-</div>
-
+{% block extra_head %}
 <style>
+.chats-top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:14px}
+.chats-top h2{font-size:1.3rem;font-weight:800;letter-spacing:-.02em;
+  background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.chats-top p{color:var(--muted);font-size:.78rem;margin-top:4px}
+.search-wrap{position:relative;min-width:280px;flex:1;max-width:460px}
+.search-wrap>i.s-ico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;pointer-events:none}
+.search-wrap input{padding-left:38px;padding-right:74px}
+.search-wrap .s-clear{position:absolute;right:42px;top:50%;transform:translateY(-50%);background:none;border:none;
+  color:var(--muted);cursor:pointer;padding:6px;border-radius:50%;display:none}
+.search-wrap .s-clear:hover{color:var(--text);background:var(--card3)}
+.search-wrap kbd{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:.66rem;
+  border:1px solid var(--border2);border-radius:6px;padding:1px 7px;color:var(--muted);font-family:inherit;pointer-events:none}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.chip{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:99px;
+  font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .18s;display:inline-flex;align-items:center;gap:7px}
+.chip:hover{border-color:var(--accent);color:var(--text);transform:translateY(-1px)}
+.chip.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(var(--accent-rgb),.35)}
+.chip .n{font-size:.68rem;background:rgba(127,127,127,.2);padding:1px 7px;border-radius:99px}
+.chip.active .n{background:rgba(255,255,255,.25)}
+.chat-row{display:flex;align-items:center;gap:14px;padding:14px 18px;text-decoration:none;color:inherit;
+  animation:rowIn .4s ease backwards}
+.chat-row.unread{border-color:rgba(var(--accent-rgb),.35);background:linear-gradient(90deg,rgba(var(--accent-rgb),.08),var(--card) 40%)}
 @keyframes rowIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.av{width:52px;height:52px;border-radius:50%;flex-shrink:0;position:relative}
+.av .face{width:52px;height:52px;border-radius:50%;overflow:hidden;background:var(--grad);display:flex;align-items:center;
+  justify-content:center;font-weight:700;font-size:1.1rem;color:#fff;box-shadow:0 4px 14px rgba(var(--accent-rgb),.35);position:relative}
+.av .face img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.av .ubadge{position:absolute;top:-2px;right:-2px;background:var(--accent2);color:#fff;border-radius:99px;font-size:.66rem;
+  padding:2px 7px;font-weight:700;min-width:20px;text-align:center;border:2px solid var(--card);box-shadow:0 2px 8px rgba(var(--accent2-rgb),.5)}
+.av .bbadge{position:absolute;bottom:-2px;right:-2px;background:var(--red);color:#fff;border-radius:50%;font-size:.6rem;
+  width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:2px solid var(--card)}
+.row-main{flex:1;min-width:0}
+.row-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.row-name{font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:7px}
+.row-name .un{color:var(--muted);font-weight:400;font-size:.76rem}
+.tag-blocked{font-size:.6rem;background:var(--red);color:#fff;padding:2px 7px;border-radius:20px;font-weight:700;letter-spacing:.04em}
+.row-time{font-size:.72rem;color:var(--muted);flex-shrink:0}
+.row-time.hot{color:var(--accent2);font-weight:700}
+.row-prev{font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;color:var(--muted)}
+.row-prev.hot{color:var(--text)}
+.row-id{font-size:.68rem;color:var(--muted2);margin-top:2px}
+mark.hl{background:rgba(255,214,10,.8);color:#111;border-radius:3px;padding:0 1px}
+.skel-row{height:80px;margin-bottom:8px;border-radius:var(--radius)}
+.pager{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px;flex-wrap:wrap}
 </style>
+{% endblock %}
+{% block content %}
+<div class="chats-top">
+  <div>
+    <h2 id="countTitle">Conversations</h2>
+    <p id="countSub">&nbsp;</p>
+  </div>
+  <div class="search-wrap">
+    <i class="fa-solid fa-magnifying-glass s-ico"></i>
+    <input type="text" id="searchBox" class="form-control" autocomplete="off"
+       placeholder="Search name, @username, chat ID or last message…"/>
+    <button class="s-clear" id="searchClear" title="Clear" aria-label="Clear search"><i class="fa-solid fa-xmark"></i></button>
+    <kbd>/</kbd>
+  </div>
+</div>
+<div class="chips" id="chips">
+  <button class="chip active" data-f="all"><i class="fa-solid fa-comments"></i> All <span class="n" id="nAll">0</span></button>
+  <button class="chip" data-f="unread"><i class="fa-solid fa-envelope"></i> Unread <span class="n" id="nUnread">0</span></button>
+  <button class="chip" data-f="blocked"><i class="fa-solid fa-ban"></i> Blocked <span class="n" id="nBlocked">0</span></button>
+</div>
+<div id="chatsList"></div>
+<div class="pager" id="pager"></div>
+<script id="initData" type="application/json">{{ init|tojson }}</script>
 {% endblock %}
 
 {% block scripts %}
 <script>
-window.__pageInit = function(){
-  const sb=document.getElementById('searchBox');
-  if(!sb || sb.dataset.bound) return;
-  sb.dataset.bound='1';
-  let debounce;
-  sb.addEventListener('input', ()=>{
-    clearTimeout(debounce);
-    debounce=setTimeout(()=>{
-      const q=sb.value.trim();
-      const url='/api/chats?page=1'+(q?('&q='+encodeURIComponent(q)):'');
-      fetch(url).then(r=>r.json()).then(d=>renderChatList(d));
-    }, 250);
-  });
-};
-window.__pageInit();
+(function(){
+const $ = id => document.getElementById(id);
+const init = JSON.parse($('initData').textContent);
+let state = {q: init.q || '', filter: init.filter || 'all', page: init.page || 1};
+let lastData = init, timer = null, seq = 0, loading = false;
 
-function renderChatList(d){
-  const wrap=document.getElementById('chatsList');
-  if(!wrap) return;
-  if(!d.chats.length){
-    wrap.innerHTML=`<div class="empty-state"><i class="fa-solid fa-headset"></i>
-      <p>${d.q?'No matches for "'+d.q+'"':'No conversations yet'}</p></div>`;
-    return;
-  }
-  let html='<div style="display:flex;flex-direction:column;gap:8px">';
-  d.chats.forEach((ch,i)=>{
-    const initial=(ch.user_name||'?')[0].toUpperCase();
-    const avatar = ch.photo_file_id
-      ? `<img src="/avatar/${ch.chat_id}" style="width:52px;height:52px;object-fit:cover" onerror="this.parentElement.innerHTML='${initial}'"/>`
-      : initial;
-    const unreadBadge = ch.unread && !ch.blocked
-      ? `<span style="position:absolute;top:-2px;right:-2px;background:var(--accent2);color:#fff;
-          border-radius:99px;font-size:.66rem;padding:2px 7px;font-weight:700;min-width:20px;text-align:center;
-          box-shadow:0 2px 8px rgba(255,92,156,.5);border:2px solid var(--card)">${ch.unread}</span>` : '';
-    const blockedBadge = ch.blocked
-      ? `<span style="position:absolute;bottom:-2px;right:-2px;background:var(--red);color:#fff;
-          border-radius:50%;font-size:.6rem;width:20px;height:20px;display:flex;align-items:center;
-          justify-content:center;border:2px solid var(--card)">🚫</span>` : '';
-    const previewRaw=(ch.last_message||'No messages yet').replace(/\n/g,' ');
-    const preview=previewRaw.length>70?previewRaw.slice(0,70)+'…':previewRaw;
-    html+=`<a href="/chat/${ch.chat_id}" class="chat-row card card-hover"
-      style="display:flex;align-items:center;gap:14px;padding:14px 18px;text-decoration:none;color:inherit;
-      animation:rowIn .4s ease backwards;animation-delay:${i*0.03}s;
-      ${ch.unread?'border-color:rgba(124,108,255,.35);background:linear-gradient(90deg,rgba(124,108,255,.08),var(--card) 40%)':''}">
-      <div style="width:52px;height:52px;border-radius:50%;flex-shrink:0;position:relative">
-        <div style="width:52px;height:52px;border-radius:50%;overflow:hidden;background:var(--grad);
-          display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;
-          color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.35)">${avatar}</div>
-        ${blockedBadge}${unreadBadge}
-      </div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-          <span style="font-weight:${ch.unread?700:600};font-size:.92rem;overflow:hidden;text-overflow:ellipsis;
-            white-space:nowrap;display:flex;align-items:center;gap:7px">
-            ${ch.user_name||ch.chat_id}
-            ${ch.username?`<span style="color:var(--muted);font-weight:400;font-size:.76rem">@${ch.username}</span>`:''}
-            ${ch.blocked?'<span style="font-size:.6rem;background:var(--red);color:#fff;padding:2px 7px;border-radius:20px;font-weight:700">BLOCKED</span>':''}
-          </span>
-          <span style="font-size:.72rem;color:var(--muted);flex-shrink:0">${ch.last_time||''}</span>
-        </div>
-        <div style="font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;
-          color:${ch.unread?'var(--text)':'var(--muted)'}">${preview}</div>
-      </div>
-      <i class="fa-solid fa-chevron-right" style="color:var(--muted);font-size:.78rem"></i>
-    </a>`;
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+function hl(parent, text){
+  const terms = state.q.replace(/@/g,' ').split(/\s+/).filter(Boolean);
+  if(!terms.length){ parent.appendChild(document.createTextNode(text)); return; }
+  const re = new RegExp('(' + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')','gi');
+  text.split(re).forEach((p,i)=>{
+    if(!p) return;
+    if(i%2){ const m=el('mark','hl'); m.textContent=p; parent.appendChild(m); } else parent.appendChild(document.createTextNode(p));
   });
-  html+='</div>';
-  wrap.innerHTML=html;
 }
+function row(ch, i){
+  const a = el('a','chat-row card card-hover'+(ch.unread?' unread':''));
+  a.href = '/chat/' + encodeURIComponent(ch.chat_id);
+  a.style.animationDelay = Math.min(i,12)*0.03 + 's';
+  const av = el('div','av'), face = el('div','face');
+  face.appendChild(el('span','', (ch.user_name||'?').trim().charAt(0).toUpperCase() || '?'));
+  if(ch.photo_file_id){
+    const img = el('img'); img.alt=''; img.loading='lazy'; img.src='/avatar/'+encodeURIComponent(ch.chat_id);
+    img.onerror = () => img.remove(); face.appendChild(img);
+  }
+  av.appendChild(face);
+  if(ch.blocked) av.appendChild(el('span','bbadge','🚫'));
+  else if(ch.unread) av.appendChild(el('span','ubadge', String(ch.unread)));
+  a.appendChild(av);
+
+  const main = el('div','row-main'), top = el('div','row-top');
+  const name = el('span','row-name'); name.style.fontWeight = ch.unread ? 700 : 600;
+  const nm = el('span'); hl(nm, ch.user_name || ch.chat_id); name.appendChild(nm);
+  if(ch.username){ const u = el('span','un'); u.appendChild(document.createTextNode('@')); hl(u, ch.username); name.appendChild(u); }
+  if(ch.blocked) name.appendChild(el('span','tag-blocked','BLOCKED'));
+  top.appendChild(name);
+  top.appendChild(el('span','row-time'+(ch.unread?' hot':''), ch.last_label || ''));
+  main.appendChild(top);
+  const prev = el('div','row-prev'+(ch.unread?' hot':''));
+  hl(prev, (ch.last_message || 'No messages yet').replace(/\s+/g,' ').slice(0,90));
+  main.appendChild(prev);
+  if(state.q && /^\d+$/.test(state.q.trim())){ const id = el('div','row-id'); hl(id, 'ID ' + ch.chat_id); main.appendChild(id); }
+  a.appendChild(main);
+  const chev = el('i','fa-solid fa-chevron-right'); chev.style.cssText='color:var(--muted);font-size:.78rem'; a.appendChild(chev);
+  return a;
+}
+function render(d, animate){
+  lastData = d;
+  $('countTitle').textContent = d.counts.all + ' Conversation' + (d.counts.all === 1 ? '' : 's');
+  $('countSub').textContent = (d.total_unread ? d.total_unread + ' unread · ' : '') + 'Page ' + d.page + ' of ' + d.pages;
+  $('nAll').textContent = d.counts.all; $('nUnread').textContent = d.counts.unread; $('nBlocked').textContent = d.counts.blocked;
+  document.querySelectorAll('#chips .chip').forEach(c => c.classList.toggle('active', c.dataset.f === state.filter));
+  const list = $('chatsList'); list.textContent = '';
+  if(!d.chats.length){
+    const e = el('div','empty-state');
+    e.innerHTML = '<i class="fa-solid fa-headset"></i>';
+    e.appendChild(el('p','', d.q ? 'No matches for "' + d.q + '"' : (state.filter!=='all' ? 'Nothing here' : 'No conversations yet')));
+    e.appendChild(el('p','sub', d.q ? 'Try fewer words, a @username or a chat ID' : 'Users will appear here when they message your bot'));
+    list.appendChild(e);
+  } else {
+    const wrap = el('div'); wrap.style.cssText='display:flex;flex-direction:column;gap:8px';
+    d.chats.forEach((ch,i) => { const r = row(ch, animate ? i : 99); if(!animate) r.style.animation='none'; wrap.appendChild(r); });
+    list.appendChild(wrap);
+  }
+  renderPager(d);
+}
+function renderPager(d){
+  const p = $('pager'); p.textContent = '';
+  if(d.pages <= 1) return;
+  const btn = (label, page, active, icon) => {
+    const b = el('button','btn btn-sm ' + (active ? 'btn-primary' : 'btn-secondary'));
+    if(icon) b.innerHTML = icon; else b.textContent = label;
+    if(!active) b.onclick = () => { state.page = page; load(true); window.scrollTo({top:0,behavior:'smooth'}); };
+    else b.style.cursor = 'default';
+    return b;
+  };
+  if(d.page > 1) p.appendChild(btn('', d.page-1, false, '<i class="fa-solid fa-chevron-left"></i> Prev'));
+  let prevShown = 0;
+  for(let n=1; n<=d.pages; n++){
+    if(n<=2 || n>d.pages-2 || Math.abs(n-d.page)<=1){
+      if(prevShown && n-prevShown>1) p.appendChild(el('span','','…'));
+      p.appendChild(btn(String(n), n, n===d.page)); prevShown = n;
+    }
+  }
+  if(d.page < d.pages) p.appendChild(btn('', d.page+1, false, 'Next <i class="fa-solid fa-chevron-right"></i>'));
+}
+function skeleton(){
+  const list = $('chatsList'); if(list.children.length) return;
+  for(let i=0;i<5;i++) list.appendChild(el('div','skeleton skel-row'));
+}
+async function load(animate){
+  if(loading && !animate) return;
+  loading = true; const my = ++seq;
+  try{
+    const qs = new URLSearchParams({page: state.page, filter: state.filter});
+    if(state.q) qs.set('q', state.q);
+    const d = await api('/api/chats?' + qs);
+    if(my !== seq) return;
+    state.page = d.page;
+    render(d, animate);
+    const u = new URL(location); state.q ? u.searchParams.set('q', state.q) : u.searchParams.delete('q');
+    state.filter!=='all' ? u.searchParams.set('filter', state.filter) : u.searchParams.delete('filter');
+    state.page>1 ? u.searchParams.set('page', state.page) : u.searchParams.delete('page');
+    history.replaceState(null,'',u);
+  }catch(e){ if(my===seq) toast('Could not load chats: '+e.message,'err'); }
+  finally{ loading = false; }
+}
+
+const box = $('searchBox'); box.value = state.q;
+const clr = $('searchClear'); const syncClear = () => clr.style.display = box.value ? 'block' : 'none'; syncClear();
+box.addEventListener('input', () => {
+  syncClear(); clearTimeout(timer);
+  timer = setTimeout(() => { state.q = box.value.trim(); state.page = 1; load(true); }, 250);
+});
+clr.onclick = () => { box.value=''; syncClear(); state.q=''; state.page=1; load(true); box.focus(); };
+box.addEventListener('keydown', e => { if(e.key==='Escape' && box.value){ clr.click(); } });
+document.addEventListener('keydown', e => {
+  if(e.key==='/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)){ e.preventDefault(); box.focus(); }
+});
+document.querySelectorAll('#chips .chip').forEach(c => c.onclick = () => { state.filter = c.dataset.f; state.page = 1; load(true); });
+
+render(init, true);
+// keep the list live (new messages, unread counters) without disturbing typing
+setInterval(() => { if(!document.hidden && document.activeElement !== box) load(false); }, 7000);
+})();
 </script>
 {% endblock %}
