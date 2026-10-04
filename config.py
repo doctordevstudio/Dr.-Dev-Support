@@ -9,6 +9,13 @@ def _clean(v: str) -> str:
     return (v or "").strip()
 
 
+def _bool(name: str, default: bool) -> bool:
+    raw = _clean(os.environ.get(name, ""))
+    if not raw:
+        return default
+    return raw.lower() in ("1", "true", "yes", "on")
+
+
 # ── Timezone (IST) ────────────────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -49,6 +56,10 @@ AUTO_REPLY = os.environ.get(
 )
 AUTO_REPLY_COOLDOWN_MINUTES = int(os.environ.get("AUTO_REPLY_COOLDOWN_MINUTES", 30))
 
+# ── Notifications ────────────────────────────────────────────────────────────
+# Ping the admin chat(s) when a user reacts to a message (set to 0 to disable)
+REACTION_NOTIFY = _bool("REACTION_NOTIFY", True)
+
 # ── Anti-spam ────────────────────────────────────────────────────────────────
 ANTI_SPAM_MAX_MSGS = int(os.environ.get("ANTI_SPAM_MAX_MSGS", 6))
 ANTI_SPAM_WINDOW_SECONDS = int(os.environ.get("ANTI_SPAM_WINDOW_SECONDS", 10))
@@ -67,3 +78,8 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", 49))
 # ── Pagination ───────────────────────────────────────────────────────────────
 CHATS_PER_PAGE = int(os.environ.get("CHATS_PER_PAGE", 20))
 MESSAGES_PER_PAGE = int(os.environ.get("MESSAGES_PER_PAGE", 30))
+
+# ── Broadcast ────────────────────────────────────────────────────────────────
+# Delay between two Telegram sends (seconds). 0.05 ≈ 20 msgs/sec.
+BROADCAST_DELAY = float(os.environ.get("BROADCAST_DELAY", 0.05))
+BROADCAST_HISTORY_LIMIT = int(os.environ.get("BROADCAST_HISTORY_LIMIT", 100))
