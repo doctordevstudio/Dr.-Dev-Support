@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="{{ 'dark' if S.theme == 'auto' else S.theme }}" data-auto="{{ 1 if S.theme == 'auto' else 0 }}">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Login — {{ panel_name }}</title>
+<title>Login · {{ site_title }}</title>
+<meta name="robots" content="noindex,nofollow"/>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -40,12 +42,12 @@ body::after{width:500px;height:500px;background:#ff5c9c;bottom:-180px;right:-180
 .form-control{width:100%;background:var(--card2);border:1px solid var(--border);
   color:var(--text);padding:13px 14px 13px 42px;border-radius:12px;font-size:.88rem;
   font-family:inherit;transition:all .2s}
-.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,108,255,.15)}
+.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(var(--accent-rgb),.15)}
 .form-group i.field-icon{position:absolute;left:14px;top:38px;color:var(--muted);font-size:.85rem}
 .btn{width:100%;padding:14px;background:var(--grad);color:#fff;border:none;border-radius:12px;
   font-size:.9rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit;
-  box-shadow:0 8px 24px rgba(124,108,255,.35);letter-spacing:.02em}
-.btn:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(124,108,255,.5)}
+  box-shadow:0 8px 24px rgba(var(--accent-rgb),.35);letter-spacing:.02em}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(var(--accent-rgb),.5)}
 .btn:active{transform:translateY(0)}
 .alert{padding:11px 14px;border-radius:10px;margin-bottom:18px;font-size:.82rem;
   background:rgba(255,77,94,.12);border:1px solid rgba(255,77,94,.25);color:var(--red);
@@ -53,15 +55,20 @@ body::after{width:500px;height:500px;background:#ff5c9c;bottom:-180px;right:-180
 .theme-toggle{position:fixed;top:20px;right:20px;background:var(--card);border:1px solid var(--border);
   border-radius:10px;padding:9px 13px;cursor:pointer;color:var(--muted);z-index:2;font-size:.9rem}
 .footnote{text-align:center;margin-top:22px;font-size:.72rem;color:var(--muted)}
+.logo .icon{animation:wave 2s ease-in-out infinite}
+.dev-link{display:block;text-align:center;margin-top:14px;font-size:.72rem;color:var(--muted);text-decoration:none}
+.dev-link:hover{color:var(--accent)}
+body::before{background:var(--accent)!important}body::after{background:var(--accent2)!important}
 </style>
+<style>{{ theme_css|safe }}</style>
 </head>
 <body>
 <button class="theme-toggle" onclick="toggleTheme()"><i class="fa-solid fa-sun" id="ti"></i></button>
 <div class="card">
   <div class="logo">
-    <span class="icon">🎧</span>
+    <span class="icon">{{ S.logo_emoji }}</span>
     <h1>{{ panel_name }}</h1>
-    <p>Secure Admin Access</p>
+    <p>{{ S.tagline }} · Secure Admin Access</p>
   </div>
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat,msg in messages %}
@@ -82,13 +89,14 @@ body::after{width:500px;height:500px;background:#ff5c9c;bottom:-180px;right:-180
     <button type="submit" class="btn"><i class="fa-solid fa-right-to-bracket"></i>&nbsp; Sign In</button>
   </form>
   <div class="footnote">Authorized personnel only</div>
+  <a class="dev-link" href="https://t.me/doctordevsupport" target="_blank" rel="noopener">Made by Dr. Dev || Dr. Hamza</a>
 </div>
 <script>
 const h=document.documentElement;
-const t=localStorage.getItem('theme')||'dark';
-h.setAttribute('data-theme',t); updateIcon(t);
-function toggleTheme(){const n=h.getAttribute('data-theme')==='dark'?'light':'dark';h.setAttribute('data-theme',n);localStorage.setItem('theme',n);updateIcon(n);}
-function updateIcon(t){document.getElementById('ti').className=t==='dark'?'fa-solid fa-sun':'fa-solid fa-moon';}
+const mq=window.matchMedia('(prefers-color-scheme: dark)');
+function paint(t){h.setAttribute('data-theme',t);document.getElementById('ti').className=t==='dark'?'fa-solid fa-sun':'fa-solid fa-moon';}
+paint(h.dataset.auto==='1'?(mq.matches?'dark':'light'):h.getAttribute('data-theme'));
+function toggleTheme(){h.dataset.auto='0';paint(h.getAttribute('data-theme')==='dark'?'light':'dark');}
 </script>
 </body>
 </html>
