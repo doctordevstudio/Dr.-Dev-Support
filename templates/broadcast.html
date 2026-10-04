@@ -1,332 +1,331 @@
 {% extends "base.html" %}
 {% block title %}Broadcast{% endblock %}
-{% block page_title %}📢 Broadcast Message{% endblock %}
+{% block page_title %}📢 Broadcast{% endblock %}
+{% block extra_head %}
+<style>
+.bc-wrap{max-width:900px;margin:0 auto}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.stat{padding:16px 18px;position:relative;overflow:hidden}
+.stat .v{font-size:1.6rem;font-weight:800;letter-spacing:-.02em}
+.stat .l{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:700;margin-top:2px}
+.stat i{position:absolute;right:14px;top:14px;font-size:1.3rem;opacity:.25}
+.stat.ok .v{color:var(--green)}.stat.bad .v{color:var(--red)}.stat.acc .v{color:var(--accent)}
+@media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+.fmt-tabs{display:flex;gap:8px;background:var(--card2);padding:5px;border-radius:12px;border:1px solid var(--border);width:fit-content;margin-bottom:14px}
+.fmt-tab{background:transparent;border:none;color:var(--muted);padding:9px 18px;border-radius:8px;font-size:.82rem;font-weight:600;
+  cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .18s;font-family:inherit}
+.fmt-tab.active{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(var(--accent-rgb),.35)}
+.attach-row{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.attach-chip{display:none;align-items:center;gap:10px;background:var(--card2);border:1px solid var(--accent);border-radius:12px;padding:8px 12px;font-size:.8rem;animation:popScale .3s both}
+.attach-chip .nm{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.attach-chip button{background:none;border:none;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px}
+.attach-chip button:hover{background:var(--red);color:#fff}
+.counter{font-size:.72rem;color:var(--muted);margin-left:auto}
+.counter.over{color:var(--red);font-weight:700}
+.prog{height:8px;background:var(--card2);border-radius:99px;overflow:hidden;border:1px solid var(--border)}
+.prog>div{height:100%;width:0;background:var(--grad);transition:width .3s;border-radius:99px;position:relative}
+.prog>div::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);
+  background-size:200% 100%;animation:shine 1.4s linear infinite}
+.h-head{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px;gap:10px;flex-wrap:wrap}
+.h-head h3{font-size:1.05rem;font-weight:800}
+.hist{display:flex;flex-direction:column;gap:12px}
+.bc-item{padding:16px 18px;animation:fadeUp .4s both}
+.bc-item.is-deleted{opacity:.62}
+.bc-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.bc-date{font-size:.76rem;color:var(--muted);font-weight:600}
+.pill{font-size:.64rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:99px;
+  background:var(--card2);border:1px solid var(--border);color:var(--muted)}
+.pill.ready{color:var(--green);border-color:rgba(46,204,113,.35);background:rgba(46,204,113,.1)}
+.pill.sending,.pill.editing,.pill.deleting{color:var(--yellow);border-color:rgba(255,181,71,.4);background:rgba(255,181,71,.1)}
+.pill.failed,.pill.deleted,.pill.interrupted{color:var(--red);border-color:rgba(255,77,94,.35);background:rgba(255,77,94,.1)}
+.pill.src{color:var(--accent3)}
+.bc-body{font-size:.86rem;line-height:1.55;max-height:92px;overflow:hidden;position:relative;margin-bottom:12px;
+  mask-image:linear-gradient(180deg,#000 70%,transparent);-webkit-mask-image:linear-gradient(180deg,#000 70%,transparent)}
+.bc-media{display:inline-flex;align-items:center;gap:8px;font-size:.78rem;color:var(--accent3);font-weight:700;margin-bottom:6px}
+.bc-nums{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:.8rem;margin-bottom:10px}
+.bc-nums b{font-size:.95rem}
+.n-ok{color:var(--green)}.n-bad{color:var(--red)}
+.rate{height:6px;border-radius:99px;background:rgba(255,77,94,.35);overflow:hidden;margin-bottom:12px}
+.rate>div{height:100%;background:var(--green);border-radius:99px;transition:width .6s}
+.bc-actions{display:flex;gap:8px;flex-wrap:wrap}
+.bc-err{font-size:.74rem;color:var(--muted);margin-top:8px;word-break:break-word}
+.fail-list{max-height:300px;overflow-y:auto;margin-top:12px;font-size:.8rem}
+.fail-list div{padding:8px 10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.fail-list small{color:var(--muted)}
+</style>
+{% endblock %}
+
 {% block content %}
-<div style="max-width:920px;margin:0 auto">
-  <div class="card" style="padding:24px;margin-bottom:18px">
+<div class="bc-wrap">
+
+  <div class="stats">
+    <div class="card stat acc"><i class="fa-solid fa-tower-broadcast"></i><div class="v" id="stB">0</div><div class="l">Broadcasts</div></div>
+    <div class="card stat ok"><i class="fa-solid fa-circle-check"></i><div class="v" id="stD">0</div><div class="l">Successful</div></div>
+    <div class="card stat bad"><i class="fa-solid fa-circle-xmark"></i><div class="v" id="stF">0</div><div class="l">Failed</div></div>
+    <div class="card stat"><i class="fa-solid fa-users"></i><div class="v" id="stR">0</div><div class="l">Recipients now</div></div>
+  </div>
+
+  <div class="card" style="padding:24px">
     <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:20px">
-      <div style="width:48px;height:48px;border-radius:14px;background:var(--grad);
-           display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.3rem;
-           box-shadow:0 6px 20px rgba(124,108,255,.4);flex-shrink:0">
-        <i class="fa-solid fa-tower-broadcast"></i>
-      </div>
+      <div style="width:48px;height:48px;border-radius:14px;background:var(--grad);display:flex;align-items:center;justify-content:center;
+           color:#fff;font-size:1.3rem;box-shadow:0 6px 20px rgba(var(--accent-rgb),.4);flex-shrink:0;animation:floaty 4s ease-in-out infinite">
+        <i class="fa-solid fa-tower-broadcast"></i></div>
       <div>
-        <h2 style="font-size:1.15rem;font-weight:800;letter-spacing:-.01em">Send to all users</h2>
+        <h2 style="font-size:1.15rem;font-weight:800;letter-spacing:-.01em">New broadcast</h2>
         <p style="color:var(--muted);font-size:.82rem;margin-top:4px">
-          Broadcast a message to every non-blocked user who has ever contacted your bot.
-          <span id="recipientCount" style="color:var(--accent);font-weight:700"></span>
-        </p>
+          Send text, an image, a video or a file to every user who can still receive messages.
+          You can also use <code>/broadcast</code> in the Telegram bot — it shows up here too.</p>
       </div>
     </div>
 
-    <div style="display:flex;gap:8px;margin-bottom:14px;background:var(--card2);padding:5px;border-radius:12px;
-         border:1px solid var(--border);width:fit-content">
-      <button id="tabText" class="fmt-tab active" onclick="setFormat('text')">
-        <i class="fa-solid fa-font"></i> Text
-      </button>
-      <button id="tabHtml" class="fmt-tab" onclick="setFormat('html')">
-        <i class="fa-solid fa-code"></i> HTML
-      </button>
+    <div class="fmt-tabs">
+      <button id="tabText" class="fmt-tab active" onclick="setFormat('text')"><i class="fa-solid fa-font"></i> Text</button>
+      <button id="tabHtml" class="fmt-tab" onclick="setFormat('html')"><i class="fa-solid fa-code"></i> HTML</button>
     </div>
 
-    <textarea id="messageBox" class="form-control" rows="9"
+    <textarea id="messageBox" class="form-control" rows="7"
       style="font-family:ui-monospace,'JetBrains Mono',monospace;font-size:.85rem;line-height:1.6;resize:vertical"
-      placeholder="Type your broadcast message here…"></textarea>
+      placeholder="Type your broadcast message…  (with an attachment this becomes the caption)"></textarea>
 
-    <div id="htmlPreview" style="display:none;margin-top:14px">
-      <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;
-           font-weight:700;margin-bottom:8px">Preview</div>
-      <div class="card" style="padding:16px;background:var(--card2)">
-        <div id="previewContent" style="font-size:.9rem;line-height:1.6"></div>
-      </div>
+    <div class="attach-row">
+      <input type="file" id="fileInput" style="display:none" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.apk"/>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fileInput').click()">
+        <i class="fa-solid fa-paperclip"></i> Attach image / video / file</button>
+      <div class="attach-chip" id="attachChip"><span id="attachIcon">📎</span><span class="nm" id="attachName"></span>
+        <span id="attachSize" style="color:var(--muted)"></span>
+        <button onclick="clearFile()" title="Remove"><i class="fa-solid fa-xmark"></i></button></div>
+      <span class="counter" id="counter">0</span>
+    </div>
+
+    <div style="margin-top:14px">
+      <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:700;margin-bottom:8px">Preview</div>
+      <div class="card" style="padding:16px;background:var(--card2);box-shadow:none"><div id="previewContent"></div></div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
-      <button class="btn btn-primary" id="sendBtn" onclick="startBroadcast()">
-        <i class="fa-solid fa-paper-plane"></i> Send Broadcast
-      </button>
-      <button class="btn btn-secondary" onclick="previewToMe()">
-        <i class="fa-solid fa-eye"></i> Send test to me
-      </button>
-      <button class="btn btn-secondary" onclick="clearAll()">
-        <i class="fa-solid fa-eraser"></i> Clear
-      </button>
+      <button class="btn btn-primary" id="sendBtn" onclick="startBroadcast()"><i class="fa-solid fa-paper-plane"></i> Send Broadcast</button>
+      <button class="btn btn-secondary" onclick="testToMe()"><i class="fa-solid fa-eye"></i> Send test to me</button>
+      <button class="btn btn-secondary" onclick="clearAll()"><i class="fa-solid fa-eraser"></i> Clear</button>
     </div>
 
     <div id="progressWrap" style="display:none;margin-top:22px">
       <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:8px">
-        <span style="font-weight:600" id="progressTitle">Sending…</span>
-        <span id="progressText" style="color:var(--muted)">0 / 0</span>
-      </div>
-      <div style="height:8px;background:var(--card2);border-radius:99px;overflow:hidden;border:1px solid var(--border)">
-        <div id="progressBar" style="height:100%;width:0%;background:var(--grad);transition:width .3s;border-radius:99px"></div>
-      </div>
-      <div id="progressLog" style="margin-top:12px;max-height:180px;overflow-y:auto;font-size:.76rem;
-           font-family:ui-monospace,monospace;color:var(--muted);background:var(--card2);
-           padding:12px;border-radius:10px;border:1px solid var(--border);display:none"></div>
+        <span style="font-weight:600" id="progressLabel">Sending…</span>
+        <span id="progressText" style="color:var(--muted)">0 / 0</span></div>
+      <div class="prog"><div id="progressBar"></div></div>
     </div>
   </div>
 
-  <!-- Past broadcasts -->
-  <div class="card" style="padding:20px">
-    <h2 style="font-size:1.05rem;font-weight:800;margin-bottom:14px;
-        background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
-      Past Broadcasts
-    </h2>
-
-    {% if broadcasts %}
-    <div style="display:flex;flex-direction:column;gap:10px">
-      {% for b in broadcasts %}
-      {% if not b.archived %}
-      <div class="bc-row card card-hover" data-bid="{{ b.id }}" style="padding:14px 16px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:.72rem;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <span style="font-weight:700;color:var(--text)">{{ b.id }}</span>
-              <span style="background:var(--card2);padding:1px 8px;border-radius:99px;font-weight:600">
-                {{ b.fmt|upper }}</span>
-              <span>{{ b.started_at or '' }}</span>
-              {% if b.status == 'completed' %}
-                <span style="color:var(--green);font-weight:700">✓ {{ b.sent }}/{{ b.total }}</span>
-              {% elif b.status == 'running' %}
-                <span style="color:var(--accent);font-weight:700">● running</span>
-              {% endif %}
-            </div>
-            <div style="margin-top:8px;font-size:.85rem;line-height:1.5;color:var(--text);
-                 background:var(--card2);padding:10px 12px;border-radius:10px;border:1px solid var(--border);
-                 max-height:120px;overflow:auto" class="bc-body" data-fmt="{{ b.fmt }}">
-              {% if b.fmt == 'html' %}{{ b.text|safe }}{% else %}<pre style="margin:0;white-space:pre-wrap;font-family:inherit">{{ b.text }}</pre>{% endif %}
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-            <button class="btn btn-secondary btn-sm" onclick="resendBroadcast('{{ b.id }}')" title="Resend">
-              <i class="fa-solid fa-rotate-right"></i> Resend</button>
-            <button class="btn btn-secondary btn-sm" onclick="editBroadcast('{{ b.id }}')" title="Edit">
-              <i class="fa-solid fa-pen"></i> Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="archiveBroadcast('{{ b.id }}')" title="Archive">
-              <i class="fa-solid fa-box-archive"></i> Archive</button>
-          </div>
-        </div>
-      </div>
-      {% endif %}
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state" style="padding:30px">
-      <i class="fa-solid fa-tower-broadcast"></i>
-      <p>No broadcasts sent yet</p>
-    </div>
-    {% endif %}
+  <div class="h-head">
+    <h3>📜 Broadcast history</h3>
+    <label style="font-size:.78rem;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" id="showDeleted" checked/> Show deleted</label>
   </div>
+  <div class="hist" id="hist"></div>
 
-  <div class="card" style="padding:16px;margin-top:16px;background:linear-gradient(135deg,rgba(124,108,255,.08),rgba(255,92,156,.05))">
-    <div style="display:flex;gap:12px;align-items:flex-start;font-size:.78rem;color:var(--muted);line-height:1.6">
-      <i class="fa-solid fa-circle-info" style="color:var(--accent);font-size:1.05rem;margin-top:2px"></i>
-      <div>
-        <b style="color:var(--text)">HTML mode</b> supports:
-        <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;u&gt;</code>, <code>&lt;s&gt;</code>,
-        <code>&lt;a href=""&gt;</code>, <code>&lt;code&gt;</code>, <code>&lt;pre&gt;</code>,
-        <code>&lt;blockquote&gt;</code>.
-        <b style="color:var(--text)">Text mode</b> sends plain text with no formatting.
-        Broadcasts run in the background — you can navigate away while they send.
+  <div class="card" style="padding:18px;margin-top:18px;background:linear-gradient(135deg,rgba(var(--accent-rgb),.08),rgba(var(--accent2-rgb),.05))">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <i class="fa-solid fa-circle-info" style="color:var(--accent);font-size:1.1rem;margin-top:2px"></i>
+      <div style="font-size:.8rem;color:var(--muted);line-height:1.65">
+        <b style="color:var(--text)">HTML mode</b> supports Telegram tags: <code>&lt;b&gt;</code> <code>&lt;i&gt;</code> <code>&lt;u&gt;</code>
+        <code>&lt;s&gt;</code> <code>&lt;a href="…"&gt;</code> <code>&lt;code&gt;</code> <code>&lt;pre&gt;</code> <code>&lt;blockquote&gt;</code>.
+        <b style="color:var(--text)">Text mode</b> sends every character literally.<br>
+        <b style="color:var(--text)">Edit</b> changes the message inside every user's Telegram chat.
+        <b style="color:var(--text)">Delete</b> removes it from the users' chats — the record itself is
+        <b>never</b> removed from Firebase, it is only marked as deleted.
       </div>
     </div>
   </div>
 </div>
 
-<!-- Edit modal -->
-<div class="modal-overlay" id="bcEditModal">
-  <div class="modal" style="max-width:600px">
-    <button class="modal-close" onclick="closeModal('bcEditModal')"><i class="fa-solid fa-xmark"></i></button>
-    <h3 style="margin-bottom:14px;font-weight:700">Edit Broadcast <span id="editBcId"></span></h3>
-    <div style="display:flex;gap:6px;margin-bottom:12px;background:var(--card2);padding:4px;border-radius:10px;width:fit-content">
-      <button id="editTabText" class="fmt-tab" onclick="setEditFmt('text')">Text</button>
-      <button id="editTabHtml" class="fmt-tab" onclick="setEditFmt('html')">HTML</button>
-    </div>
-    <textarea id="editBcText" class="form-control" rows="8"
-      style="font-family:ui-monospace,monospace;font-size:.85rem;line-height:1.55"></textarea>
-    <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="submitBroadcastEdit()">
-      <i class="fa-solid fa-save"></i> Save Changes
-    </button>
+<div class="modal-overlay" id="editModal">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('editModal')"><i class="fa-solid fa-xmark"></i></button>
+    <h3 style="margin-bottom:6px;font-weight:700;font-size:1.05rem">✏️ Edit broadcast</h3>
+    <p style="font-size:.78rem;color:var(--muted);margin-bottom:14px">The new text replaces the old one in every user's chat.</p>
+    <div class="fmt-tabs"><button id="eTabText" class="fmt-tab" onclick="setEditFmt('text')"><i class="fa-solid fa-font"></i> Text</button>
+      <button id="eTabHtml" class="fmt-tab" onclick="setEditFmt('html')"><i class="fa-solid fa-code"></i> HTML</button></div>
+    <textarea id="editBox" class="form-control" rows="7" style="font-family:ui-monospace,monospace;font-size:.85rem"></textarea>
+    <div class="card" style="padding:12px;background:var(--card2);margin-top:12px;box-shadow:none"><div id="editPreview"></div></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:14px" id="editSave" onclick="submitEdit()">
+      <i class="fa-solid fa-save"></i> Save & update all chats</button>
   </div>
 </div>
 
-<style>
-.fmt-tab{
-  background:transparent;border:none;color:var(--muted);padding:9px 18px;border-radius:8px;
-  font-size:.82rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;
-  transition:all .18s;font-family:inherit;
-}
-.fmt-tab.active{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(124,108,255,.35)}
-</style>
+<div class="modal-overlay" id="detailModal">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('detailModal')"><i class="fa-solid fa-xmark"></i></button>
+    <h3 style="margin-bottom:6px;font-weight:700;font-size:1.05rem">❌ Failed deliveries</h3>
+    <div id="detailBody" style="font-size:.84rem;color:var(--muted)"></div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-let currentFormat='text';
-let pollHandle=null;
-let currentJobId=null;
-let editingBcId=null;
-let editingBcFmt='html';
+(function(){
+const $ = id => document.getElementById(id);
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+let fmt = 'text', file = null, items = [], busy = false, editId = null, editFmt = 'text', pollTimer = null;
+const MAX_MB = {{ max_upload_mb }};
 
-function setFormat(f){
-  currentFormat=f;
-  document.getElementById('tabText').classList.toggle('active', f==='text');
-  document.getElementById('tabHtml').classList.toggle('active', f==='html');
-  updatePreview();
+// ── composer ──
+window.setFormat = f => { fmt = f; $('tabText').classList.toggle('active', f==='text'); $('tabHtml').classList.toggle('active', f==='html'); refresh(); };
+function kindOfFile(){ return !file ? 'text' : 'media'; }
+function refresh(){
+  const t = $('messageBox').value;
+  renderPreview($('previewContent'), t || (file ? '' : 'Your message will appear here…'), fmt);
+  const limit = file ? 1024 : 4096, n = fmt==='html' ? t.replace(/<[^>]*>/g,'').length : t.length;
+  const c = $('counter'); c.textContent = n + ' / ' + limit; c.classList.toggle('over', n > limit);
 }
-function updatePreview(){
-  const wrap=document.getElementById('htmlPreview');
-  if(currentFormat==='html'){
-    wrap.style.display='block';
-    document.getElementById('previewContent').innerHTML=document.getElementById('messageBox').value;
-  } else {
-    wrap.style.display='none';
-  }
-}
-document.getElementById('messageBox').addEventListener('input', updatePreview);
-function clearAll(){
-  document.getElementById('messageBox').value='';
-  updatePreview();
-}
-
-async function previewToMe(){
-  const text=document.getElementById('messageBox').value;
-  if(!text.trim()){ toast('Message is empty','err'); return; }
-  const fd=new FormData();
-  fd.append('message', text);
-  fd.append('format', currentFormat);
-  try{
-    const r=await fetch('/welcome/preview',{method:'POST',body:fd});
-    const d=await r.json();
-    if(d.ok){
-      toast(`Test sent to ${d.sent_to.length} admin chat(s)`,'ok');
-      if(d.errors && d.errors.length) toast('Some errors: '+d.errors.join('; '),'err');
-    } else toast(d.error||'Failed','err');
-  }catch(e){ toast('Error: '+e,'err'); }
-}
-
-async function startBroadcast(){
-  const text=document.getElementById('messageBox').value;
-  if(!text.trim()){ toast('Message is empty','err'); return; }
-  if(!confirm('Send this broadcast to ALL users? This cannot be undone.')) return;
-
-  const btn=document.getElementById('sendBtn');
-  btn.disabled=true;
-  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Starting…';
-
-  const fd=new FormData();
-  fd.append('text', text);
-  fd.append('fmt', currentFormat);
-  try{
-    const r=await fetch('/broadcast/start',{method:'POST',body:fd});
-    const d=await r.json();
-    if(!d.ok){ toast(d.error||'Failed to start','err'); btn.disabled=false;
-      btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast'; return; }
-
-    currentJobId=d.job_id;
-    document.getElementById('progressWrap').style.display='block';
-    document.getElementById('progressLog').style.display='block';
-    document.getElementById('progressLog').innerHTML='';
-    document.getElementById('progressBar').style.width='0%';
-    document.getElementById('progressTitle').textContent='Sending…';
-    document.getElementById('progressText').textContent=`0 / ${d.total}`;
-    btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Broadcasting…';
-
-    if(pollHandle) clearInterval(pollHandle);
-    pollHandle=setInterval(pollBroadcastStatus, 700);
-  }catch(e){
-    toast('Error: '+e,'err');
-    btn.disabled=false;
-    btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast';
-  }
-}
-
-async function pollBroadcastStatus(){
-  if(!currentJobId) return;
-  try{
-    const r=await fetch(`/broadcast/status/${currentJobId}`);
-    if(!r.ok) return;
-    const d=await r.json();
-    const pct = d.total ? Math.round((d.sent/d.total)*100) : 0;
-    document.getElementById('progressBar').style.width=pct+'%';
-    document.getElementById('progressText').textContent=`${d.sent} / ${d.total}`;
-
-    const log=document.getElementById('progressLog');
-    if(d.last_chat){
-      const failed=d.failed && d.failed.find(f=>f.chat_id===d.last_chat);
-      if(failed){
-        log.innerHTML+=`<div style="color:var(--red)">✗ ${failed.chat_id}: ${failed.error}</div>`;
-      } else {
-        log.innerHTML+=`<div style="color:var(--green)">✓ ${d.last_chat}</div>`;
-      }
-      log.scrollTop=log.scrollHeight;
-    }
-
-    if(d.done){
-      clearInterval(pollHandle); pollHandle=null;
-      document.getElementById('progressTitle').textContent='Completed';
-      document.getElementById('progressBar').style.width='100%';
-      const btn=document.getElementById('sendBtn');
-      btn.disabled=false;
-      btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Send Broadcast';
-      await fetch(`/broadcast/finish/${currentJobId}`,{method:'POST'});
-      toast('Broadcast finished','ok',4000);
-      setTimeout(()=>location.reload(), 800);
-    }
-  }catch(e){}
-}
-
-async function resendBroadcast(bid){
-  if(!confirm('Resend this broadcast to all users now?')) return;
-  const r=await fetch(`/broadcast/resend/${bid}`,{method:'POST'});
-  const d=await r.json();
-  if(d.ok){ toast('Resend started','ok'); setTimeout(()=>location.reload(),600); }
-  else toast(d.error||'Failed','err');
-}
-async function archiveBroadcast(bid){
-  if(!confirm('Archive this broadcast record? It will be hidden but kept in the DB.')) return;
-  const r=await fetch(`/broadcast/delete/${bid}`,{method:'POST'});
-  const d=await r.json();
-  if(d.ok){ toast('Archived','ok'); document.querySelector(`.bc-row[data-bid="${bid}"]`)?.remove(); }
-  else toast(d.error||'Failed','err');
-}
-function editBroadcast(bid){
-  const row=document.querySelector(`.bc-row[data-bid="${bid}"]`);
-  if(!row) return;
-  editingBcId=bid;
-  editingBcFmt=row.querySelector('.bc-body').dataset.fmt;
-  const body=row.querySelector('.bc-body');
-  // Read raw text — for HTML mode the body holds rendered HTML; we stored
-  // raw text on the record itself. Fetch it fresh from the API.
-  fetch(`/broadcast/status/unknown`).catch(()=>{}); // no-op, keep API simple
-  // Simpler: read the textContent for text mode, and for HTML we ask server
-  // to send the raw. Since this is a small app, we just re-read from a tiny
-  // endpoint — but to keep code lean, we use the DOM:
-  const rawText = editingBcFmt === 'html' ? body.innerHTML : body.querySelector('pre')?.textContent || body.textContent;
-  document.getElementById('editBcId').textContent = bid;
-  document.getElementById('editBcText').value = rawText;
-  setEditFmt(editingBcFmt);
-  openModal('bcEditModal');
-}
-function setEditFmt(f){
-  editingBcFmt=f;
-  document.getElementById('editTabText').classList.toggle('active', f==='text');
-  document.getElementById('editTabHtml').classList.toggle('active', f==='html');
-}
-async function submitBroadcastEdit(){
-  if(!editingBcId) return;
-  const fd=new FormData();
-  fd.append('text', document.getElementById('editBcText').value);
-  fd.append('fmt', editingBcFmt);
-  const r=await fetch(`/broadcast/update/${editingBcId}`,{method:'POST',body:fd});
-  const d=await r.json();
-  if(d.ok){ toast('Broadcast updated','ok'); closeModal('bcEditModal'); setTimeout(()=>location.reload(),500); }
-  else toast(d.error||'Failed','err');
-}
-
-fetch('/broadcast/count').then(r=>r.json()).then(d=>{
-  document.getElementById('recipientCount').textContent=` (${d.count} recipient${d.count===1?'':'s'})`;
+$('messageBox').addEventListener('input', refresh);
+$('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if(!f) return;
+  if(f.size > MAX_MB*1024*1024){ toast('File exceeds '+MAX_MB+'MB limit','err'); e.target.value=''; return; }
+  file = f;
+  $('attachName').textContent = f.name;
+  $('attachSize').textContent = f.size<1048576 ? (f.size/1024).toFixed(0)+' KB' : (f.size/1048576).toFixed(1)+' MB';
+  $('attachIcon').textContent = f.type.startsWith('image/') ? '🖼️' : f.type.startsWith('video/') ? '🎬' : '📄';
+  $('attachChip').style.display = 'inline-flex'; refresh();
 });
+window.clearFile = () => { file = null; $('fileInput').value=''; $('attachChip').style.display='none'; refresh(); };
+window.clearAll = () => { $('messageBox').value=''; clearFile(); refresh(); };
+refresh();
+
+window.testToMe = async () => {
+  const text = $('messageBox').value;
+  if(!text.trim()){ toast('Type a message first','err'); return; }
+  const fd = new FormData(); fd.append('message', text); fd.append('format', fmt);
+  try{
+    const d = await api('/welcome/preview',{method:'POST',body:fd});
+    if(d.ok){ toast('Test sent to '+d.sent_to.length+' admin chat(s)','ok'); if(d.errors&&d.errors.length) toast(d.errors.join('; '),'err',5000); }
+    else toast(d.error||'Failed','err',5000);
+  }catch(e){ toast(e.message,'err'); }
+};
+
+window.startBroadcast = async () => {
+  if(busy){ toast('Another broadcast operation is still running','err'); return; }
+  const text = $('messageBox').value;
+  if(!file && !text.trim()){ toast('Write a message or attach a file','err'); return; }
+  const n = Number($('stR').dataset.shown||0);
+  if(!confirm('Send this '+(file?'media ':'')+'broadcast to '+n+' users?')) return;
+  const btn = $('sendBtn'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Starting…';
+  const fd = new FormData(); fd.append('text', text); fd.append('format', fmt); if(file) fd.append('file', file, file.name);
+  try{
+    const d = await api('/broadcast/api/send',{method:'POST',body:fd});
+    if(!d.ok){ toast(d.error||'Could not start','err',6000); return; }
+    toast('Broadcast started','ok'); clearAll(); loadList(true);
+  }catch(e){ toast(e.message,'err',6000); }
+  finally{ btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Broadcast'; btn.disabled = busy; }
+};
+
+// ── history ──
+function when(r){ const s = r.created_at||''; return dayLabel(s) + ' · ' + clock12(s); }
+function card(r, i){
+  const live = r.live, deleted = r.deleted || r.state==='deleted';
+  const c = el('div','card bc-item'+(deleted?' is-deleted':'')); c.style.animationDelay = Math.min(i,10)*0.04+'s'; c.dataset.id = r.id;
+  const top = el('div','bc-top');
+  top.appendChild(el('span','bc-date', when(r)));
+  top.appendChild(el('span','pill '+(r.state||''), r.state||''));
+  top.appendChild(el('span','pill src', r.source==='bot' ? '🤖 Telegram' : '🖥️ Panel'));
+  if(r.rebroadcast_of) top.appendChild(el('span','pill','🔁 re-broadcast'));
+  if(r.edited) top.appendChild(el('span','pill','✏️ edited'));
+  c.appendChild(top);
+  if(r.kind && r.kind!=='text'){
+    const m = el('div','bc-media', (r.kind==='photo'?'🖼️ Image':r.kind==='video'?'🎬 Video':'📄 '+(r.file_name||'File'))); c.appendChild(m);
+  }
+  if(r.text){ const b = el('div','bc-body'); b.appendChild(tgPreview(r.text, r.format)); c.appendChild(b); }
+  const sent = live ? live.done - live.failed : (r.sent||0), failed = live ? live.failed : (r.failed||0), total = r.total||0;
+  const nums = el('div','bc-nums');
+  const mk = (cls, label, v) => { const s = el('span'); s.innerHTML = label+' '; const b = el('b',cls,String(v)); s.appendChild(b); return s; };
+  nums.appendChild(mk('n-ok','✅ Successful', sent));
+  nums.appendChild(mk('n-bad','❌ Failed', failed));
+  nums.appendChild(mk('','👥 Total', total));
+  if(r.state==='ready' || r.state==='deleted'){ const pct = total ? Math.round(100*sent/total) : 0; nums.appendChild(el('span','', pct+'% delivered')); }
+  c.appendChild(nums);
+  if(live){
+    const p = el('div','prog'); const bar = el('div'); bar.style.width = (live.total ? Math.round(100*live.done/live.total) : 0)+'%'; p.appendChild(bar);
+    const lab = el('div','', (live.op==='send'?'Sending':live.op==='edit'?'Updating chats':'Removing from chats')+' — '+live.done+' / '+live.total);
+    lab.style.cssText='font-size:.74rem;color:var(--muted);margin:6px 0 10px'; c.appendChild(p); c.appendChild(lab);
+  } else if(total){
+    const rt = el('div','rate'); const g = el('div'); g.style.width = Math.round(100*sent/Math.max(1,sent+failed))+'%'; rt.appendChild(g); c.appendChild(rt);
+  }
+  const act = el('div','bc-actions');
+  const b = (icon, label, cls, fn, dis) => { const x = el('button','btn btn-sm '+cls); x.innerHTML = '<i class="fa-solid '+icon+'"></i> '+label; x.onclick = fn; x.disabled = !!dis || busy; if(x.disabled) x.style.opacity='.5'; return x; };
+  act.appendChild(b('fa-rotate-right','Broadcast again','btn-secondary', () => resend(r)));
+  if(!deleted) act.appendChild(b('fa-pen','Edit','btn-secondary', () => openEdit(r), r.state==='failed'||!sent));
+  if(!deleted) act.appendChild(b('fa-trash','Delete','btn-danger', () => del(r)));
+  if(failed) act.appendChild(b('fa-circle-exclamation','Failed ('+failed+')','btn-secondary', () => showFails(r)));
+  c.appendChild(act);
+  if(r.last_error && !live){ c.appendChild(el('div','bc-err','⚠️ '+r.last_error)); }
+  return c;
+}
+function renderList(d){
+  items = d.items; busy = d.busy;
+  const set = (id, v) => { const e = $(id); if(Number(e.dataset.shown||-1) !== v){ countUp(e, v); e.dataset.shown = v; } };
+  set('stB', d.stats.broadcasts); set('stD', d.stats.delivered); set('stF', d.stats.failed); set('stR', d.recipients);
+  $('sendBtn').disabled = busy;
+  const w = $('progressWrap');
+  const act = d.items.find(r => r.live);
+  if(act){ w.style.display='block'; const L = act.live;
+    $('progressLabel').textContent = L.op==='send' ? 'Sending…' : L.op==='edit' ? 'Updating every chat…' : 'Removing from chats…';
+    $('progressText').textContent = L.done+' / '+L.total; $('progressBar').style.width = (L.total?Math.round(100*L.done/L.total):0)+'%';
+  } else w.style.display='none';
+  const list = $('hist'); list.textContent = '';
+  const vis = d.items.filter(r => $('showDeleted').checked || !(r.deleted || r.state==='deleted'));
+  if(!vis.length){ const e = el('div','empty-state'); e.innerHTML='<i class="fa-solid fa-tower-broadcast"></i><p>No broadcasts yet</p><p class="sub">Your sent broadcasts will be listed here</p>'; list.appendChild(e); }
+  vis.forEach((r,i) => list.appendChild(card(r, i)));
+}
+async function loadList(fast){
+  try{
+    const d = await api('/broadcast/api/list'); renderList(d);
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(loadList, d.busy ? 1000 : 6000);
+  }catch(e){ clearTimeout(pollTimer); pollTimer = setTimeout(loadList, 8000); }
+}
+$('showDeleted').addEventListener('change', () => renderList({items, busy, stats:{broadcasts:+$('stB').dataset.shown||0,delivered:+$('stD').dataset.shown||0,failed:+$('stF').dataset.shown||0}, recipients:+$('stR').dataset.shown||0}));
+document.addEventListener('visibilitychange', () => { if(!document.hidden) loadList(); });
+
+async function post(url, fd){
+  try{ return await api(url,{method:'POST',body:fd||new FormData()}); }catch(e){ return {ok:false,error:e.message}; }
+}
+async function resend(r){
+  const n = Number($('stR').dataset.shown||0);
+  if(!confirm('Send this broadcast again to '+n+' users?')) return;
+  const d = await post('/broadcast/'+encodeURIComponent(r.id)+'/resend');
+  if(d.ok){ toast('Broadcast started','ok'); loadList(); } else toast(d.error||'Failed','err',6000);
+}
+async function del(r){
+  if(!confirm('Delete this broadcast?\n\n• It is removed from the users\' Telegram chats (where Telegram allows it)\n• The record stays in Firebase, marked as deleted')) return;
+  const d = await post('/broadcast/'+encodeURIComponent(r.id)+'/delete');
+  if(d.ok){ toast('Removing from '+d.total+' chats…','ok'); loadList(); } else toast(d.error||'Failed','err',6000);
+}
+function openEdit(r){
+  editId = r.id; $('editBox').value = r.text||''; setEditFmt(r.format||'text'); openModal('editModal');
+}
+window.setEditFmt = f => { editFmt = f; $('eTabText').classList.toggle('active', f==='text'); $('eTabHtml').classList.toggle('active', f==='html'); renderPreview($('editPreview'), $('editBox').value, f); };
+$('editBox').addEventListener('input', () => renderPreview($('editPreview'), $('editBox').value, editFmt));
+window.submitEdit = async () => {
+  const fd = new FormData(); fd.append('text', $('editBox').value); fd.append('format', editFmt);
+  const b = $('editSave'); b.disabled = true;
+  const d = await post('/broadcast/'+encodeURIComponent(editId)+'/edit', fd);
+  b.disabled = false;
+  if(d.ok){ closeModal('editModal'); toast('Updating '+d.total+' chats…','ok'); loadList(); } else toast(d.error||'Failed','err',6000);
+};
+async function showFails(r){
+  $('detailBody').textContent = 'Loading…'; openModal('detailModal');
+  try{
+    const d = await api('/broadcast/'+encodeURIComponent(r.id)+'/details');
+    const body = $('detailBody'); body.textContent = '';
+    if(!d.ok){ body.textContent = d.error||'Failed'; return; }
+    if(!d.failures.length){ body.textContent = 'No per-user failures recorded.'; return; }
+    body.appendChild(el('div','', d.failures.length+' user(s) did not receive it. Users who blocked the bot are skipped in future broadcasts.'));
+    const list = el('div','fail-list');
+    d.failures.forEach(f => { const row = el('div'); const a = el('a','', f.name + (f.username?' (@'+f.username+')':'')); a.href='/chat/'+encodeURIComponent(f.chat_id); a.style.color='var(--text)'; row.appendChild(a); row.appendChild(el('small','', f.error)); list.appendChild(row); });
+    body.appendChild(list);
+  }catch(e){ $('detailBody').textContent = e.message; }
+}
+loadList();
+})();
 </script>
 {% endblock %}
