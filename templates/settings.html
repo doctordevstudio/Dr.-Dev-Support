@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}⚙️ Settings{% endblock %}
+{% block extra_head %}
+<style>
+.set-wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.set-card{padding:24px}
+.set-head{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.set-ico{width:42px;height:42px;border-radius:12px;background:var(--grad);display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:1.05rem;box-shadow:0 6px 18px rgba(var(--accent-rgb),.35);flex-shrink:0}
+.set-head h3{font-size:1.02rem;font-weight:800}
+.set-head p{font-size:.78rem;color:var(--muted);margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}}
+.field label.lb{display:block;font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:7px}
+.field .hint{font-size:.72rem;color:var(--muted2);margin-top:5px;line-height:1.5}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--border)}
+.sw:first-of-type{border-top:none}
+.sw .t{font-size:.86rem;font-weight:600}
+.sw .d{font-size:.74rem;color:var(--muted);margin-top:2px;line-height:1.45}
+.toggle{position:relative;width:46px;height:26px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0;position:absolute}
+.toggle span{position:absolute;inset:0;background:var(--card3);border:1px solid var(--border2);border-radius:99px;cursor:pointer;transition:all .25s}
+.toggle span::before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;
+  transition:transform .25s cubic-bezier(.34,1.56,.64,1);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.toggle input:checked+span{background:var(--grad);border-color:transparent}
+.toggle input:checked+span::before{transform:translateX(20px)}
+.toggle input:focus-visible+span{box-shadow:0 0 0 4px rgba(var(--accent-rgb),.25)}
+.seg{display:flex;gap:6px;background:var(--card2);padding:5px;border-radius:12px;border:1px solid var(--border);width:fit-content}
+.seg button{background:transparent;border:none;color:var(--muted);padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:600;
+  cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;transition:all .18s}
+.seg button.on{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(var(--accent-rgb),.35)}
+.presets{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px}
+.preset{border:2px solid var(--border);background:var(--card2);border-radius:14px;padding:8px 12px;cursor:pointer;display:flex;
+  align-items:center;gap:8px;font-size:.78rem;font-weight:700;color:var(--text);font-family:inherit;transition:all .18s}
+.preset:hover{transform:translateY(-2px);border-color:var(--accent)}
+.preset i{width:22px;height:22px;border-radius:50%;display:block}
+.colors{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end}
+.colors input[type=color]{width:56px;height:40px;border:1px solid var(--border);border-radius:10px;background:var(--card2);padding:3px;cursor:pointer}
+.save-row{display:flex;align-items:center;gap:12px;margin-top:20px;flex-wrap:wrap}
+.live-preview{margin-top:14px;padding:14px;border-radius:14px;background:var(--card2);border:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.sec-warn{background:rgba(255,181,71,.12);border:1px solid rgba(255,181,71,.35);color:var(--yellow);padding:11px 14px;border-radius:10px;
+  font-size:.8rem;margin-bottom:16px;display:flex;gap:10px;align-items:center}
+.sys-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.sys{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:.8rem}
+.sys b{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:4px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}.dot.no{background:var(--red)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="set-wrap">
+
+  <!-- General -->
+  <div class="card set-card" id="general">
+    <div class="set-head"><div class="set-ico"><i class="fa-solid fa-globe"></i></div>
+      <div><h3>General</h3><p>Name, browser title and branding of this admin panel</p></div></div>
+    <div class="grid2">
+      <div class="field"><label class="lb">Website name</label>
+        <input class="form-control" id="panel_name" maxlength="40" value="{{ s.panel_name }}"/>
+        <div class="hint">Shown in the sidebar and on the login page.</div></div>
+      <div class="field"><label class="lb">Browser tab title</label>
+        <input class="form-control" id="site_title" maxlength="70" value="{{ s.site_title }}" placeholder="{{ s.panel_name }}"/>
+        <div class="hint">Leave empty to use the website name.</div></div>
+      <div class="field"><label class="lb">Tagline</label>
+        <input class="form-control" id="tagline" maxlength="40" value="{{ s.tagline }}"/>
+        <div class="hint">Small text under the name in the sidebar.</div></div>
+      <div class="field"><label class="lb">Logo emoji</label>
+        <input class="form-control" id="logo_emoji" maxlength="8" value="{{ s.logo_emoji }}" style="font-size:1.2rem"/>
+        <div class="hint">Any emoji, e.g. 🎧 💬 🛟 🚀</div></div>
+    </div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['panel_name','site_title','tagline','logo_emoji'],this)">
+      <i class="fa-solid fa-save"></i> Save general</button></div>
+  </div>
+
+  <!-- Appearance -->
+  <div class="card set-card" id="appearance">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-2)"><i class="fa-solid fa-palette"></i></div>
+      <div><h3>Appearance</h3><p>Theme, colours and animations — changes preview instantly</p></div></div>
+    <div class="field"><label class="lb">Theme</label>
+      <div class="seg" id="themeSeg">
+        <button data-v="dark"><i class="fa-solid fa-moon"></i> Dark</button>
+        <button data-v="light"><i class="fa-solid fa-sun"></i> Light</button>
+        <button data-v="auto"><i class="fa-solid fa-circle-half-stroke"></i> Auto (device)</button>
+      </div></div>
+    <div class="field" style="margin-top:18px"><label class="lb">Colour presets</label>
+      <div class="presets">
+        {% for name, c in presets.items() %}
+        <button class="preset" data-a="{{ c[0] }}" data-b="{{ c[1] }}">
+          <i style="background:linear-gradient(135deg,{{ c[0] }},{{ c[1] }})"></i>{{ name }}</button>
+        {% endfor %}
+      </div></div>
+    <div class="colors">
+      <div class="field"><label class="lb">Accent colour</label><input type="color" id="accent" value="{{ s.accent }}"/></div>
+      <div class="field"><label class="lb">Second colour</label><input type="color" id="accent2" value="{{ s.accent2 }}"/></div>
+    </div>
+    <div class="live-preview"><button class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Primary button</button>
+      <span class="badge-nav" style="margin:0">12</span>
+      <span style="font-weight:800;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Gradient text</span></div>
+    <div style="margin-top:6px">
+      <div class="sw"><div><div class="t">Animations</div><div class="d">Page transitions, floating background, button ripples. Turn off for a calmer / faster panel.</div></div>
+        <label class="toggle"><input type="checkbox" id="animations" {{ 'checked' if s.animations }}/><span></span></label></div>
+    </div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['theme','accent','accent2','animations'],this)">
+      <i class="fa-solid fa-save"></i> Save appearance</button>
+      <button class="btn btn-secondary" onclick="location.reload()">Discard</button></div>
+  </div>
+
+  <!-- Security -->
+  <div class="card set-card" id="security">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-3)"><i class="fa-solid fa-shield-halved"></i></div>
+      <div><h3>Security</h3><p>Change the admin username and password</p></div></div>
+    {% if using_default_pw %}
+    <div class="sec-warn"><i class="fa-solid fa-triangle-exclamation"></i>
+      You are using the default password <code>admin123</code>. Please set a new one below.</div>{% endif %}
+    <div class="grid2">
+      <div class="field"><label class="lb">Username</label>
+        <input class="form-control" id="cr_user" value="{{ admin_user }}" autocomplete="username"/></div>
+      <div class="field"><label class="lb">Current password</label>
+        <input class="form-control" id="cr_cur" type="password" autocomplete="current-password"/></div>
+      <div class="field"><label class="lb">New password</label>
+        <input class="form-control" id="cr_new" type="password" autocomplete="new-password" placeholder="Leave empty to keep"/>
+        <div class="hint">At least 8 characters.</div></div>
+      <div class="field"><label class="lb">Repeat new password</label>
+        <input class="form-control" id="cr_conf" type="password" autocomplete="new-password"/></div>
+    </div>
+    <div class="hint" style="margin-top:10px;font-size:.74rem;color:var(--muted2)">
+      After changing it, every other signed-in browser is logged out. The password is stored hashed in Firebase and never shown again.</div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveCreds(this)"><i class="fa-solid fa-key"></i> Update credentials</button></div>
+  </div>
+
+  <!-- Bot behaviour -->
+  <div class="card set-card" id="bot">
+    <div class="set-head"><div class="set-ico"><i class="fa-solid fa-robot"></i></div>
+      <div><h3>Bot behaviour & notifications</h3><p>What the bot says to users and what it tells you</p></div></div>
+    <div class="field"><label class="lb">Auto-reply to users</label>
+      <textarea class="form-control" id="auto_reply" rows="2" maxlength="500">{{ s.auto_reply }}</textarea>
+      <div class="hint">Sent after a user's message (plain text). Leave empty to turn it off.</div></div>
+    <div class="field" style="margin-top:14px;max-width:260px"><label class="lb">Auto-reply cool-down (minutes)</label>
+      <input class="form-control" id="auto_reply_cooldown" type="number" min="0" max="1440" value="{{ s.auto_reply_cooldown }}"/>
+      <div class="hint">0 = after every message.</div></div>
+    <div style="margin-top:14px">
+      <div class="sw"><div><div class="t">Notify me about every new message</div><div class="d">A Telegram ping in your admin chat with name, chat ID and a panel link.</div></div>
+        <label class="toggle"><input type="checkbox" id="notify_new_message" {{ 'checked' if s.notify_new_message }}/><span></span></label></div>
+      <div class="sw"><div><div class="t">Send users' photos, videos & files to my chat</div><div class="d">The actual file arrives in your Telegram admin chat together with the notification.</div></div>
+        <label class="toggle"><input type="checkbox" id="forward_media" {{ 'checked' if s.forward_media }}/><span></span></label></div>
+      <div class="sw"><div><div class="t">Notify me about reactions</div><div class="d">When a user reacts to a message.</div></div>
+        <label class="toggle"><input type="checkbox" id="notify_reaction" {{ 'checked' if s.notify_reaction }}/><span></span></label></div>
+      <div class="sw"><div><div class="t">Notify me when a user edits a message</div><div class="d">Shows the old and the new text.</div></div>
+        <label class="toggle"><input type="checkbox" id="notify_edit" {{ 'checked' if s.notify_edit }}/><span></span></label></div>
+      <div class="sw"><div><div class="t">Confirm <code>/broadcast</code> in Telegram</div><div class="d">Shows a preview with Send / Cancel buttons before anything goes to your users. Recommended.</div></div>
+        <label class="toggle"><input type="checkbox" id="broadcast_confirm" {{ 'checked' if s.broadcast_confirm }}/><span></span></label></div>
+    </div>
+    <div class="field" style="margin-top:14px;max-width:260px"><label class="lb">Broadcast delay (seconds between users)</label>
+      <input class="form-control" id="broadcast_delay" type="number" step="0.01" min="0.03" max="2" value="{{ s.broadcast_delay }}"/>
+      <div class="hint">0.05 ≈ 20 messages/second (Telegram's limit is about 30).</div></div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['auto_reply','auto_reply_cooldown','notify_new_message','forward_media','notify_reaction','notify_edit','broadcast_confirm','broadcast_delay'],this)">
+      <i class="fa-solid fa-save"></i> Save bot settings</button>
+      <button class="btn btn-secondary" onclick="testNotify(this)"><i class="fa-solid fa-bell"></i> Send test notification</button></div>
+  </div>
+
+  <!-- Panel -->
+  <div class="card set-card" id="panel">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-2)"><i class="fa-solid fa-sliders"></i></div>
+      <div><h3>Panel</h3><p>Lists, pagination and sounds</p></div></div>
+    <div class="grid2">
+      <div class="field"><label class="lb">Conversations per page</label>
+        <input class="form-control" id="chats_per_page" type="number" min="5" max="100" value="{{ s.chats_per_page }}"/></div>
+      <div class="field"><label class="lb">Messages loaded per page in a chat</label>
+        <input class="form-control" id="messages_per_page" type="number" min="10" max="100" value="{{ s.messages_per_page }}"/></div>
+    </div>
+    <div class="sw" style="margin-top:8px"><div><div class="t">Sound on new message</div><div class="d">A soft beep while a chat is open.</div></div>
+      <label class="toggle"><input type="checkbox" id="notify_sound" {{ 'checked' if s.notify_sound }}/><span></span></label></div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['chats_per_page','messages_per_page','notify_sound'],this)">
+      <i class="fa-solid fa-save"></i> Save panel settings</button></div>
+  </div>
+
+  <!-- Anti-spam -->
+  <div class="card set-card" id="spam">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-3)"><i class="fa-solid fa-user-shield"></i></div>
+      <div><h3>Anti-spam</h3><p>How fast users may write before they are muted or blocked</p></div></div>
+    <div class="grid2">
+      <div class="field"><label class="lb">Max messages per window</label>
+        <input class="form-control" id="spam_max_msgs" type="number" min="2" max="60" value="{{ s.spam_max_msgs }}"/></div>
+      <div class="field"><label class="lb">Window (seconds)</label>
+        <input class="form-control" id="spam_window" type="number" min="2" max="120" value="{{ s.spam_window }}"/></div>
+      <div class="field"><label class="lb">Minimum gap between messages (seconds)</label>
+        <input class="form-control" id="spam_min_gap" type="number" step="0.1" min="0" max="10" value="{{ s.spam_min_gap }}"/></div>
+      <div class="field"><label class="lb">Identical messages allowed in a row</label>
+        <input class="form-control" id="spam_dup_limit" type="number" min="2" max="20" value="{{ s.spam_dup_limit }}"/></div>
+      <div class="field"><label class="lb">Mute time (seconds)</label>
+        <input class="form-control" id="spam_mute" type="number" min="5" max="3600" value="{{ s.spam_mute }}"/></div>
+      <div class="field"><label class="lb">Strikes before auto-block</label>
+        <input class="form-control" id="spam_max_strikes" type="number" min="1" max="20" value="{{ s.spam_max_strikes }}"/></div>
+    </div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['spam_max_msgs','spam_window','spam_min_gap','spam_dup_limit','spam_mute','spam_max_strikes'],this)">
+      <i class="fa-solid fa-save"></i> Save anti-spam</button></div>
+  </div>
+
+  <!-- System -->
+  <div class="card set-card" id="system">
+    <div class="set-head"><div class="set-ico"><i class="fa-solid fa-server"></i></div>
+      <div><h3>System status</h3><p>Read-only — these come from your environment variables (Render → Environment)</p></div></div>
+    <div class="sys-grid">
+      <div class="sys"><b>Telegram bot</b><span class="dot {{ 'ok' if bot_ok else 'no' }}"></span>{{ 'Connected' if bot_ok else 'BOT_TOKEN missing' }}</div>
+      <div class="sys"><b>Firebase</b><span class="dot {{ 'ok' if firebase_ok else 'no' }}"></span>{{ 'Configured' if firebase_ok else 'FIREBASE_URL missing' }}</div>
+      <div class="sys"><b>Admin Telegram chats</b><span class="dot {{ 'ok' if admin_ids else 'no' }}"></span>{{ admin_ids|length }} configured</div>
+      <div class="sys"><b>Panel URL</b>{{ panel_url or '— (set PANEL_URL for the "Open in Admin Panel" button)' }}</div>
+    </div>
+  </div>
+</div>
+<script id="sData" type="application/json">{{ {"theme": s.theme, "accent": s.accent, "accent2": s.accent2}|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+const $ = id => document.getElementById(id);
+const S0 = JSON.parse($('sData').textContent);
+let theme = S0.theme;
+const hex2rgb = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16)).join(',');
+
+function paintTheme(){
+  const a = $('accent').value, b = $('accent2').value;
+  document.getElementById('themeVars').textContent =
+    `:root[data-theme]{--accent:${a};--accent2:${b};--accent-rgb:${hex2rgb(a)};--accent2-rgb:${hex2rgb(b)};--grad:linear-gradient(135deg,${a} 0%,${b} 100%)}`;
+}
+function paintSeg(){
+  document.querySelectorAll('#themeSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === theme));
+}
+document.querySelectorAll('#themeSeg button').forEach(btn => btn.onclick = () => {
+  theme = btn.dataset.v; paintSeg();
+  const h = document.documentElement;
+  h.dataset.auto = theme === 'auto' ? '1' : '0';
+  applyTheme(theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme);
+});
+document.querySelectorAll('.preset').forEach(p => p.onclick = () => {
+  $('accent').value = p.dataset.a; $('accent2').value = p.dataset.b; paintTheme();
+});
+['accent','accent2'].forEach(id => $(id).addEventListener('input', paintTheme));
+paintSeg();
+
+function valueOf(id){
+  const e = $(id);
+  if(id === 'theme') return theme;
+  if(e.type === 'checkbox') return e.checked;
+  if(e.type === 'number') return e.value === '' ? null : Number(e.value);
+  return e.value;
+}
+window.saveGroup = async (ids, btn) => {
+  const body = {}; ids.forEach(id => body[id] = valueOf(id));
+  btn.disabled = true;
+  try{
+    const d = await api('/settings/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(d.ok){
+      toast('Saved','ok');
+      if(ids.some(i => ['panel_name','site_title','tagline','logo_emoji','animations'].includes(i))) setTimeout(() => location.reload(), 700);
+    } else toast(d.error || 'Could not save','err',6000);
+  }catch(e){ toast(e.message,'err'); }
+  btn.disabled = false;
+};
+window.saveCreds = async btn => {
+  const body = {username:$('cr_user').value, current_password:$('cr_cur').value,
+                new_password:$('cr_new').value, confirm_password:$('cr_conf').value};
+  if(!body.current_password){ toast('Enter your current password','err'); return; }
+  btn.disabled = true;
+  try{
+    const d = await api('/settings/api/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(d.ok){ toast('Credentials updated — other sessions were signed out','ok',5000);
+      ['cr_cur','cr_new','cr_conf'].forEach(i => $(i).value=''); setTimeout(() => location.reload(), 1200); }
+    else toast(d.error || 'Could not update','err',6000);
+  }catch(e){ toast(e.message,'err'); }
+  btn.disabled = false;
+};
+window.testNotify = async btn => {
+  btn.disabled = true;
+  try{
+    const d = await api('/debug/notify');
+    if(!d.ok) toast(d.error,'err',7000);
+    else { const bad = d.results.filter(r => !r.ok);
+      bad.length ? toast(bad.map(r => r.admin_id+': '+r.error).join('; '),'err',8000) : toast('Test sent to '+d.results.length+' admin chat(s)','ok'); }
+  }catch(e){ toast(e.message,'err'); }
+  btn.disabled = false;
+};
+if(location.hash){ const t = document.querySelector(location.hash); if(t) setTimeout(() => t.scrollIntoView({behavior:'smooth',block:'start'}), 300); }
+})();
+</script>
+{% endblock %}
