@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="{{ 'dark' if S.theme == 'auto' else S.theme }}" data-auto="{{ 1 if S.theme == 'auto' else 0 }}" class="{{ '' if S.animations else 'no-anim' }}">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>{% block title %}{{ panel_name }}{% endblock %}</title>
+<title>{% filter trim %}{% block title %}{% endblock %}{% endfilter %} · {{ site_title }}</title>
+<meta name="theme-color" content="{{ S.accent }}"/>
+<meta name="robots" content="noindex,nofollow"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
 <style>
 :root[data-theme="dark"]{
   --bg:#0a0d14;--bg2:#0f131c;
@@ -33,15 +36,16 @@
   --grad-2:linear-gradient(135deg,#00bcd4 0%,#6c5ce7 100%);
   --grad-3:linear-gradient(135deg,#e91e63 0%,#ea9f1a 100%);
 }
+:root{--accent-rgb:124,108,255;--accent2-rgb:255,92,156}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
 body{font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--text);
-  display:flex;min-height:100vh;overflow-x:hidden;font-feature-settings:"cv11","ss01"}
+  display:flex;min-height:100vh;min-height:100dvh;overflow-x:hidden;font-feature-settings:"cv11","ss01"}
 body::before{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
-    radial-gradient(600px 400px at 10% -10%, rgba(124,108,255,.08), transparent 60%),
-    radial-gradient(500px 400px at 90% 110%, rgba(255,92,156,.07), transparent 60%);
+    radial-gradient(600px 400px at 10% -10%, rgba(var(--accent-rgb),.08), transparent 60%),
+    radial-gradient(500px 400px at 90% 110%, rgba(var(--accent2-rgb),.07), transparent 60%);
 }
 .sidebar{
   width:244px;background:var(--sidebar);border-right:1px solid var(--border);
@@ -69,15 +73,15 @@ body::before{
   border-radius:0 4px 4px 0;
 }
 .nav-link:hover{background:var(--card2);color:var(--text);transform:translateX(2px)}
-.nav-link.active{background:linear-gradient(90deg,rgba(124,108,255,.15),rgba(124,108,255,.02));color:var(--text);font-weight:600}
+.nav-link.active{background:linear-gradient(90deg,rgba(var(--accent-rgb),.15),rgba(var(--accent-rgb),.02));color:var(--text);font-weight:600}
 .nav-link.active::before{transform:scaleY(1)}
 .nav-link i{width:18px;text-align:center;font-size:.9rem}
 .badge-nav{
   margin-left:auto;background:var(--grad);color:#fff;font-size:.62rem;
   padding:2px 8px;border-radius:99px;font-weight:700;min-width:20px;text-align:center;
-  box-shadow:0 2px 8px rgba(124,108,255,.4);
+  box-shadow:0 2px 8px rgba(var(--accent-rgb),.4);
 }
-.main{margin-left:244px;flex:1;display:flex;flex-direction:column;min-height:100vh;
+.main{margin-left:244px;flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh;
   transition:margin .3s;position:relative;z-index:1}
 .topbar{
   background:color-mix(in srgb,var(--sidebar) 80%,transparent);
@@ -86,7 +90,8 @@ body::before{
   display:flex;align-items:center;justify-content:space-between;
   position:sticky;top:0;z-index:50;
 }
-.topbar h1{font-size:1rem;font-weight:700;letter-spacing:-.01em}
+.topbar h1{font-size:1rem;font-weight:700;letter-spacing:-.01em;min-width:0}
+.topbar>div:first-child{min-width:0}
 .topbar-right{display:flex;align-items:center;gap:10px}
 .theme-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);
   border-radius:var(--radius-sm);padding:8px 12px;cursor:pointer;transition:all .18s;font-size:.85rem}
@@ -99,8 +104,8 @@ body::before{
   font-size:.82rem;font-weight:600;cursor:pointer;border:none;text-decoration:none;
   transition:all .18s cubic-bezier(.4,0,.2,1);font-family:inherit;letter-spacing:-.01em}
 .btn:active{transform:scale(.97)}
-.btn-primary{background:var(--grad);color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.35)}
-.btn-primary:hover{box-shadow:0 6px 22px rgba(124,108,255,.5);transform:translateY(-1px)}
+.btn-primary{background:var(--grad);color:#fff;box-shadow:0 4px 14px rgba(var(--accent-rgb),.35)}
+.btn-primary:hover{box-shadow:0 6px 22px rgba(var(--accent-rgb),.5);transform:translateY(-1px)}
 .btn-danger{background:var(--red);color:#fff}
 .btn-danger:hover{opacity:.9;transform:translateY(-1px)}
 .btn-secondary{background:var(--card2);color:var(--text);border:1px solid var(--border)}
@@ -114,7 +119,7 @@ body::before{
 .form-control{width:100%;background:var(--card2);border:1px solid var(--border);
   color:var(--text);padding:11px 14px;border-radius:var(--radius-sm);font-size:.86rem;
   font-family:inherit;transition:all .18s}
-.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,108,255,.15)}
+.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(var(--accent-rgb),.15)}
 .form-control::placeholder{color:var(--muted2)}
 .alert{padding:11px 16px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:.83rem;
   display:flex;align-items:center;gap:10px;animation:fadeIn .3s ease}
@@ -164,29 +169,103 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:6px;border:2px solid transparent;background-clip:content-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--accent);background-clip:content-box}
 </style>
+
+<style>
+/* ── Animations ─────────────────────────────────────────────────────────── */
+.bg-orbs{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.bg-orbs i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.22}
+.bg-orbs i:nth-child(1){width:420px;height:420px;background:var(--accent);top:-120px;left:8%;animation:orb1 22s ease-in-out infinite}
+.bg-orbs i:nth-child(2){width:380px;height:380px;background:var(--accent2);bottom:-140px;right:6%;animation:orb2 26s ease-in-out infinite}
+.bg-orbs i:nth-child(3){width:260px;height:260px;background:var(--accent3);top:45%;left:48%;opacity:.12;animation:orb3 30s ease-in-out infinite}
+@keyframes orb1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(120px,80px) scale(1.15)}}
+@keyframes orb2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-110px,-70px) scale(1.2)}}
+@keyframes orb3{0%,100%{transform:translate(0,0)}50%{transform:translate(-90px,60px)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes navIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
+@keyframes popScale{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(var(--accent-rgb),.55)}70%{box-shadow:0 0 0 14px rgba(var(--accent-rgb),0)}}
+@keyframes spinSlow{to{transform:rotate(360deg)}}
+@keyframes shine{from{background-position:-200% 0}to{background-position:200% 0}}
+.nav-link{animation:navIn .45s cubic-bezier(.4,0,.2,1) both;animation-delay:calc(var(--i,0) * 55ms)}
+.sidebar-logo h2 .logo-emoji{display:inline-block;animation:floaty 3.6s ease-in-out infinite}
+.content>*{animation:fadeUp .5s cubic-bezier(.4,0,.2,1) both}
+.content>*:nth-child(2){animation-delay:.06s}.content>*:nth-child(3){animation-delay:.12s}
+.content>*:nth-child(4){animation-delay:.18s}.content>*:nth-child(5){animation-delay:.24s}
+.btn{position:relative;overflow:hidden}
+.btn-primary{background-size:200% 100%}
+.btn-primary:hover{animation:shine 1.6s linear infinite}
+.ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.45);transform:scale(0);
+  animation:rippleOut .6s ease-out;pointer-events:none}
+@keyframes rippleOut{to{transform:scale(4);opacity:0}}
+.pop-in{animation:popScale .35s cubic-bezier(.34,1.56,.64,1) both}
+.badge-nav{animation:glowPulse 2.2s infinite}
+.card{transition:transform .25s,border-color .25s,box-shadow .25s}
+.no-anim *,.no-anim *::before,.no-anim *::after{animation:none!important;transition:none!important}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ── Contact Developer ──────────────────────────────────────────────────── */
+.dev-modal{max-width:420px;text-align:center;padding:0;overflow:hidden}
+.dev-hero{position:relative;padding:34px 20px 8px;background:
+  radial-gradient(circle at 50% 0%,rgba(var(--accent-rgb),.28),transparent 70%)}
+.dev-ring{width:150px;height:150px;margin:0 auto;border-radius:50%;padding:5px;position:relative;
+  background:conic-gradient(from 0deg,var(--accent),var(--accent2),var(--accent3),var(--accent));animation:spinSlow 9s linear infinite}
+.dev-ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;background:#000;
+  animation:spinSlow 9s linear infinite reverse}
+.dev-body{padding:16px 26px 26px}
+.dev-name{font-size:1.25rem;font-weight:800;letter-spacing:-.02em;
+  background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.dev-role{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-weight:700;margin:4px 0 14px}
+.dev-text{font-size:.86rem;line-height:1.65;color:var(--muted);margin-bottom:12px}
+.dev-text b{color:var(--text)}
+.dev-skills{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin:4px 0 16px}
+.dev-skills span{font-size:.72rem;font-weight:700;padding:5px 11px;border-radius:99px;background:var(--card2);
+  border:1px solid var(--border);animation:popScale .4s both;animation-delay:calc(var(--k,0) * 70ms)}
+.dev-cta{width:100%;justify-content:center;padding:13px 18px;font-size:.88rem;animation:glowPulse 2.4s infinite}
+.dev-handle{margin-top:10px;font-size:.74rem;color:var(--muted2)}
+/* Telegram-HTML preview */
+.tg-preview{font-size:.9rem;line-height:1.6;word-break:break-word;white-space:pre-wrap}
+.tg-preview blockquote{border-left:3px solid var(--accent);padding:2px 0 2px 10px;margin:4px 0;background:rgba(var(--accent-rgb),.08);border-radius:0 6px 6px 0}
+.tg-preview pre,.tg-preview code{font-family:ui-monospace,monospace;background:var(--card3);border-radius:6px;padding:1px 5px;font-size:.82rem}
+.tg-preview pre{padding:8px 10px;display:block;white-space:pre-wrap}
+.tg-preview a{color:var(--accent3);text-decoration:underline}
+.tg-preview tg-spoiler{background:var(--muted2);color:transparent;border-radius:4px;cursor:pointer;transition:all .2s}
+.tg-preview tg-spoiler:hover{background:transparent;color:inherit}
+.pw-warn{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pw-warn a{color:inherit;font-weight:700;text-decoration:underline}
+</style>
+<style id="themeVars">{{ theme_css|safe }}</style>
 {% block extra_head %}{% endblock %}
 </head>
 <body>
+<div class="bg-orbs"><i></i><i></i><i></i></div>
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
-    <h2><span style="font-size:1.2rem">🎧</span> {{ panel_name }}</h2>
-    <span>Support Console</span>
+    <h2><span class="logo-emoji" style="font-size:1.2rem">{{ S.logo_emoji }}</span> {{ panel_name }}</h2>
+    <span>{{ S.tagline }}</span>
   </div>
   <nav style="padding:8px 0;flex:1">
     <div class="nav-section">Workspace</div>
-    <a href="{{ url_for('chats') }}" data-nav class="nav-link {% if request.endpoint in ('chats','chat_view') %}active{% endif %}">
+    <a href="{{ url_for('chats') }}" class="nav-link {% if request.endpoint in ('chats','chat_view') %}active{% endif %}">
       <i class="fa-solid fa-comments"></i> Conversations
       <span id="unreadBadge" class="badge-nav" style="display:none">0</span>
     </a>
-    <a href="{{ url_for('broadcast_view') }}" data-nav class="nav-link {% if request.endpoint=='broadcast_view' %}active{% endif %}">
+    <a href="{{ url_for('broadcast_view') }}" class="nav-link {% if request.endpoint=='broadcast_view' %}active{% endif %}">
       <i class="fa-solid fa-tower-broadcast"></i> Broadcast
     </a>
-    <a href="{{ url_for('welcome_view') }}" data-nav class="nav-link {% if request.endpoint=='welcome_view' %}active{% endif %}">
+    <a href="{{ url_for('welcome_view') }}" class="nav-link {% if request.endpoint=='welcome_view' %}active{% endif %}">
       <i class="fa-solid fa-hand-sparkles"></i> Welcome Message
     </a>
     <div class="nav-section" style="margin-top:6px">Analytics</div>
-    <a href="{{ url_for('logs_view') }}" data-nav class="nav-link {% if request.endpoint=='logs_view' %}active{% endif %}">
+    <a href="{{ url_for('logs_view') }}" class="nav-link {% if request.endpoint=='logs_view' %}active{% endif %}">
       <i class="fa-solid fa-list-check"></i> Activity Log
+    </a>
+    <div class="nav-section" style="margin-top:6px">Manage</div>
+    <a href="{{ url_for('settings_view') }}" class="nav-link {% if request.endpoint=='settings_view' %}active{% endif %}">
+      <i class="fa-solid fa-gear"></i> Settings
+    </a>
+    <a href="#" class="nav-link" onclick="openDev(event)">
+      <i class="fa-solid fa-code"></i> Contact Developer
     </a>
     <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
       <a href="{{ url_for('logout') }}" class="nav-link" style="color:var(--red)">
@@ -218,7 +297,36 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
         </div>
       {% endfor %}
     {% endwith %}
+    {% if using_default_pw and request.endpoint != 'settings_view' %}
+      <div class="alert alert-danger pw-warn"><i class="fa-solid fa-shield-halved"></i>
+        <span>You are still using the default admin password.</span>
+        <a href="{{ url_for('settings_view') }}#security">Change it now</a></div>
+    {% endif %}
     {% block content %}{% endblock %}
+  </div>
+</div>
+
+<div class="modal-overlay" id="devModal" onclick="if(event.target===this)closeModal('devModal')">
+  <div class="modal dev-modal">
+    <button class="modal-close" onclick="closeModal('devModal')" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+    <div class="dev-hero">
+      <div class="dev-ring"><img src="{{ url_for('static', filename='clown.jpg') }}" alt="Dr. Dev clown logo"/></div>
+    </div>
+    <div class="dev-body">
+      <h3 class="dev-name">Dr. Dev || Dr. Hamza</h3>
+      <div class="dev-role">Developer of this website</div>
+      <p class="dev-text">This website is made by <b>Dr. Dev || Dr. Hamza</b>.<br>
+        I am currently a <b>NEET 1st year dropper</b>.</p>
+      <div class="dev-skills">
+        <span style="--k:1">🐍 Python</span><span style="--k:2">🤖 Android Studio (Java)</span>
+        <span style="--k:3">🐘 PHP</span><span style="--k:4">🗄️ MySQL</span><span style="--k:5">⚡ JS</span>
+      </div>
+      <p class="dev-text">If you need <b>custom projects</b> or want to <b>modify existing projects</b>,
+        message me on Telegram.</p>
+      <a class="btn btn-primary dev-cta" href="https://t.me/doctordevsupport" target="_blank" rel="noopener">
+        <i class="fa-brands fa-telegram"></i> Message me on Telegram</a>
+      <div class="dev-handle">t.me/doctordevsupport</div>
+    </div>
   </div>
 </div>
 <div id="overlay" onclick="toggleSidebar()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99"></div>
@@ -226,18 +334,19 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
 
 <script>
 const html=document.documentElement;
-const savedTheme=localStorage.getItem('theme')||'dark';
-html.setAttribute('data-theme',savedTheme);
-updateThemeIcon(savedTheme);
-function toggleTheme(){
-  const next=html.getAttribute('data-theme')==='dark'?'light':'dark';
-  html.setAttribute('data-theme',next);
-  localStorage.setItem('theme',next);
-  updateThemeIcon(next);
-}
-function updateThemeIcon(t){
+const mq=window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(t){
+  html.setAttribute('data-theme',t);
   const icon=document.getElementById('themeIcon');
   if(icon) icon.className=t==='dark'?'fa-solid fa-sun':'fa-solid fa-moon';
+}
+if(html.dataset.auto==='1') applyTheme(mq.matches?'dark':'light');
+else applyTheme(html.getAttribute('data-theme'));
+mq.addEventListener&&mq.addEventListener('change',e=>{ if(html.dataset.auto==='1') applyTheme(e.matches?'dark':'light'); });
+function toggleTheme(){
+  const next=html.getAttribute('data-theme')==='dark'?'light':'dark';
+  html.dataset.auto='0'; applyTheme(next);
+  api('/settings/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:next})}).catch(()=>{});
 }
 function toggleSidebar(){
   const sb=document.getElementById('sidebar'), ov=document.getElementById('overlay');
@@ -250,22 +359,40 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
 });
 
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function toast(msg, type='info', ms=2800){
   const wrap=document.getElementById('toastWrap');
   const el=document.createElement('div');
   el.className='toast '+type;
   const icons={ok:'fa-circle-check',err:'fa-circle-exclamation',info:'fa-circle-info'};
   const colors={ok:'var(--green)',err:'var(--red)',info:'var(--accent)'};
-  el.innerHTML=`<i class="fa-solid ${icons[type]||icons.info}" style="color:${colors[type]||colors.info}"></i><span>${msg}</span>`;
+  const i=document.createElement('i');
+  i.className='fa-solid '+(icons[type]||icons.info);
+  i.style.color=colors[type]||colors.info;
+  const sp=document.createElement('span');
+  sp.textContent=msg;                       // textContent: server/user text can't inject HTML
+  el.appendChild(i); el.appendChild(sp);
   wrap.appendChild(el);
   setTimeout(()=>{el.style.transition='opacity .3s,transform .3s';el.style.opacity='0';el.style.transform='translateX(40px)';
     setTimeout(()=>el.remove(),320);},ms);
 }
+// fetch() wrapper: always sends the XHR header, always returns parsed JSON,
+// and turns a session timeout into a redirect instead of a cryptic JSON error.
+async function api(url, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({'X-Requested-With':'fetch'}, opts.headers||{});
+  const r = await fetch(url, opts);
+  if(r.status===401){ location.href='/login'; throw new Error('Session expired'); }
+  let d; try{ d = await r.json(); }catch(e){ throw new Error('Server returned an invalid response ('+r.status+')'); }
+  return d;
+}
 
 async function refreshUnreadBadge(){
+  if(document.hidden) return;
   try{
-    const r=await fetch('/unread_count');
-    const d=await r.json();
+    const d=await api('/unread_count');
     const badge=document.getElementById('unreadBadge');
     if(!badge) return;
     if(d.count>0){badge.textContent=d.count>99?'99+':d.count;badge.style.display='inline-block';}
@@ -274,46 +401,73 @@ async function refreshUnreadBadge(){
 }
 refreshUnreadBadge();
 setInterval(refreshUnreadBadge, 8000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshUnreadBadge(); });
 
-document.addEventListener('click', e=>{
-  const a = e.target.closest('a[data-nav]');
-  if(!a) return;
-  if(a.target) return;
-  const url = a.getAttribute('href');
-  if(!url || url.startsWith('http')) return;
-  e.preventDefault();
-  navigate(url);
-  history.pushState({},'',url);
+// ── Contact developer ──
+function openDev(e){
+  if(e) e.preventDefault();
+  const sb=document.getElementById('sidebar');
+  if(sb.classList.contains('open')) toggleSidebar();
+  openModal('devModal');
+}
+// ── Staggered sidebar entrance ──
+document.querySelectorAll('.sidebar .nav-link').forEach((a,i)=>a.style.setProperty('--i',i));
+// ── Button ripple ──
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.btn'); if(!b||html.classList.contains('no-anim')) return;
+  const r=b.getBoundingClientRect(), d=Math.max(r.width,r.height);
+  const s=document.createElement('span'); s.className='ripple';
+  s.style.cssText=`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;
+  b.appendChild(s); setTimeout(()=>s.remove(),620);
 });
-window.addEventListener('popstate', ()=>{
-  if(location.pathname==='/') navigate('/', false);
-});
-function navigate(url){
-  document.getElementById('mainContent').style.opacity='0.5';
-  document.getElementById('mainContent').style.transition='opacity .2s';
-  fetch(url, {headers:{'X-Requested-With':'fetch'}})
-    .then(r=>r.text())
-    .then(html=>{
-      const doc=new DOMParser().parseFromString(html,'text/html');
-      const nc=doc.querySelector('#mainContent');
-      const nt=doc.querySelector('.topbar h1');
-      if(nc){
-        document.getElementById('mainContent').innerHTML=nc.innerHTML;
-        document.getElementById('mainContent').style.opacity='1';
-        document.querySelectorAll('#mainContent script').forEach(s=>{
-          const n=document.createElement('script');
-          n.textContent=s.textContent;
-          s.replaceWith(n);
-        });
+// ── Animated counters: <span data-count="123"> ──
+function countUp(el,to,ms){
+  to=Number(to)||0;
+  if(html.classList.contains('no-anim')||to===0){el.textContent=to;return;}
+  const from=Number(el.dataset.shown||0), t0=performance.now(); ms=ms||700;
+  (function step(t){
+    const k=Math.min(1,(t-t0)/ms), v=Math.round(from+(to-from)*(1-Math.pow(1-k,3)));
+    el.textContent=v; if(k<1) requestAnimationFrame(step); else el.dataset.shown=to;
+  })(t0);
+}
+document.querySelectorAll('[data-count]').forEach(el=>countUp(el,el.dataset.count));
+// ── Telegram-HTML preview (only tags Telegram supports; everything else is shown literally) ──
+const TG_OK={B:1,STRONG:1,I:1,EM:1,U:1,INS:1,S:1,STRIKE:1,DEL:1,A:1,CODE:1,PRE:1,BLOCKQUOTE:1,'TG-SPOILER':1,SPAN:1};
+function tgPreview(src,fmt){
+  const out=document.createElement('div'); out.className='tg-preview';
+  if(fmt!=='html'){ out.textContent=src; return out; }
+  const doc=new DOMParser().parseFromString('<body>'+src+'</body>','text/html');
+  (function walk(from,to){
+    from.childNodes.forEach(n=>{
+      if(n.nodeType===3){ to.appendChild(document.createTextNode(n.nodeValue)); }
+      else if(n.nodeType===1){
+        if(TG_OK[n.tagName]){
+          const e=document.createElement(n.tagName.toLowerCase());
+          if(n.tagName==='A'){const h=n.getAttribute('href')||''; if(/^(https?:|tg:|mailto:)/i.test(h)){e.href=h;e.target='_blank';e.rel='noopener';}}
+          walk(n,e); to.appendChild(e);
+        } else { to.appendChild(document.createTextNode('<'+n.tagName.toLowerCase()+'>')); walk(n,to); }
       }
-      if(nt) document.querySelector('.topbar h1').innerHTML=nt.innerHTML;
-      // Update active nav
-      document.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));
-      const match=document.querySelector(`.nav-link[href="${url}"]`);
-      if(match) match.classList.add('active');
-      if(window.__pageInit) window.__pageInit();
-    })
-    .catch(()=>{location.href=url});
+    });
+  })(doc.body,out);
+  return out;
+}
+function renderPreview(box,src,fmt){ box.textContent=''; box.appendChild(tgPreview(src,fmt)); }
+// ── Friendly dates (WhatsApp style, always in IST like the stored timestamps) ──
+const DAY_MS=86400000;
+function istToday(){ const d=new Date(Date.now()+19800000); return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }
+function dayNum(str){ const p=(str||'').slice(0,10).split('-'); return p.length===3?Date.UTC(+p[0],+p[1]-1,+p[2]):NaN; }
+function dayLabel(str){
+  const n=dayNum(str); if(isNaN(n)) return str||'';
+  const diff=Math.round((istToday()-n)/DAY_MS);
+  if(diff<=0) return 'Today';
+  if(diff===1) return 'Yesterday';
+  const d=new Date(n);
+  if(diff<7) return d.toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'});
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});
+}
+function clock12(str){
+  const m=(str||'').match(/(\d{2}):(\d{2})/); if(!m) return '';
+  let h=+m[1]; const ap=h>=12?'PM':'AM'; h=h%12||12; return h+':'+m[2]+' '+ap;
 }
 </script>
 {% block scripts %}{% endblock %}
