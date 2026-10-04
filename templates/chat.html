@@ -3,7 +3,7 @@
 
 {% block page_title %}
   <div style="display:flex;align-items:center;gap:12px">
-    <a href="{{ url_for('chats') }}" data-nav style="color:var(--muted);text-decoration:none;
+    <a href="{{ url_for('chats') }}" style="color:var(--muted);text-decoration:none;
        padding:6px;border-radius:8px;transition:all .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background=''">
       <i class="fa-solid fa-arrow-left"></i>
     </a>
@@ -11,11 +11,11 @@
       {% if meta.photo_file_id %}
         <img src="{{ url_for('avatar', cid=cid) }}" alt="avatar"
              style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);
-             box-shadow:0 2px 10px rgba(124,108,255,.4)"/>
+             box-shadow:0 2px 10px rgba(var(--accent-rgb),.4)"/>
       {% else %}
         <div style="width:40px;height:40px;border-radius:50%;background:var(--grad);
              display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:.95rem;
-             box-shadow:0 2px 10px rgba(124,108,255,.4)">
+             box-shadow:0 2px 10px rgba(var(--accent-rgb),.4)">
           {{ (meta.user_name or '?')[0]|upper }}
         </div>
       {% endif %}
@@ -36,95 +36,127 @@
 
 {% block extra_head %}
 <style>
-.chat-shell{display:flex;flex-direction:column;height:calc(100vh - 130px);max-width:900px;margin:0 auto}
+.chat-shell{display:flex;flex-direction:column;height:calc(100vh - 130px);height:calc(100dvh - 130px);max-width:900px;margin:0 auto}
 .chat-messages{
-  flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:8px;
+  flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:12px;
   background:linear-gradient(180deg,var(--bg2) 0%,var(--bg) 100%);
-  border-radius:var(--radius);border:1px solid var(--border);position:relative;scroll-behavior:smooth;
+  border-radius:var(--radius);border:1px solid var(--border);position:relative;
 }
 .chat-messages::before{
   content:'';position:absolute;inset:0;pointer-events:none;border-radius:var(--radius);
-  background-image:radial-gradient(circle at 20% 30%,rgba(124,108,255,.05) 0,transparent 40%),
-                   radial-gradient(circle at 80% 70%,rgba(255,92,156,.05) 0,transparent 40%);
+  background-image:radial-gradient(circle at 20% 30%,rgba(var(--accent-rgb),.05) 0,transparent 40%),
+                   radial-gradient(circle at 80% 70%,rgba(var(--accent2-rgb),.05) 0,transparent 40%);
 }
-.bubble-wrap{display:flex;flex-direction:column;position:relative;animation:msgIn .3s cubic-bezier(.4,0,.2,1)}
+#msgsContainer{display:flex;flex-direction:column;gap:12px}
+.bubble-wrap{display:flex;flex-direction:column;position:relative;animation:msgIn .35s cubic-bezier(.4,0,.2,1)}
 .bubble-wrap.admin{align-items:flex-end}
 .bubble-wrap.user{align-items:flex-start}
-@keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.bubble{
-  max-width:72%;padding:8px 13px;border-radius:16px;font-size:.86rem;line-height:1.42;
-  word-wrap:break-word;overflow-wrap:anywhere;position:relative;transition:background .15s;
-}
-.bubble.user{background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:5px;
-  color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+@keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+
+/* The bubble itself is NORMAL white-space. Only the message text keeps its line
+   breaks (pre-wrap). Previously the whole bubble was pre-wrap, so every newline
+   and indent of the HTML template inside it was drawn as an empty line — that is
+   what made server-rendered bubbles taller than they used to be. */
+.bubble{max-width:74%;padding:11px 15px;border-radius:18px;font-size:.87rem;line-height:1.55;
+  word-break:break-word;position:relative;transition:background .2s,box-shadow .2s;white-space:normal;cursor:default}
+.bubble > :not(:last-child){margin-bottom:5px}
+.msg-text{white-space:pre-wrap}
+.bubble-meta .edited-tag{display:inline-flex;align-items:center;gap:3px;font-style:italic;color:var(--muted)}
+.bubble-meta .del-x{color:var(--red)}
+mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1px}
+.bubble.search-focus{outline:2px solid #ffd60a;outline-offset:2px;animation:focusPulse 1.2s ease 2}
+@keyframes focusPulse{50%{outline-color:transparent}}
+.search-bar{display:none;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;box-shadow:var(--shadow);animation:fadeUp .25s both}
+.search-bar.open{display:flex}
+.search-bar .sb-input{flex:1;min-width:0;background:var(--card2);border:1px solid var(--border);color:var(--text);
+  padding:9px 12px;border-radius:10px;font-size:.84rem;font-family:inherit}
+.search-bar .sb-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(var(--accent-rgb),.15)}
+.sb-count{font-size:.76rem;font-weight:700;color:var(--muted);white-space:nowrap;min-width:78px;text-align:center}
+.sb-count.none{color:var(--red)}
+.sb-btn{background:var(--card2);border:1px solid var(--border);color:var(--text);width:34px;height:34px;border-radius:10px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.sb-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.sb-btn:disabled{opacity:.35;cursor:not-allowed}
+.bubble.user{background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:5px;color:var(--text);
+  box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .bubble.admin{background:var(--grad);color:#fff;border-bottom-right-radius:5px;
-  box-shadow:0 3px 12px rgba(124,108,255,.28)}
+  box-shadow:0 4px 16px rgba(var(--accent-rgb),.35)}
 .bubble.deleted{background:transparent;border:1px dashed var(--border);color:var(--muted);
-  font-style:italic;box-shadow:none}
-.bubble-meta{font-size:.62rem;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:4px;padding:0 4px}
+  font-style:italic;box-shadow:none;padding:8px 13px}
+.bubble-meta{font-size:.66rem;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:5px}
 .bubble-wrap.admin .bubble-meta{justify-content:flex-end}
-.bubble img,.bubble video{max-width:260px;border-radius:12px;display:block;margin-bottom:4px}
+.bubble img,.bubble video{max-width:260px;border-radius:12px;display:block}
 .bubble img{cursor:zoom-in;transition:transform .2s}
 .bubble img:hover{transform:scale(1.02)}
-.bubble-doc-link{display:inline-flex;align-items:center;gap:10px;padding:9px 13px;border-radius:12px;
+.bubble-doc-link{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;
   background:rgba(255,255,255,.14);color:inherit;text-decoration:none;font-size:.82rem;font-weight:500;
-  max-width:260px;margin-bottom:4px;transition:all .18s;border:1px solid rgba(255,255,255,.1)}
+  max-width:260px;transition:all .18s;border:1px solid rgba(255,255,255,.1)}
 .bubble.user .bubble-doc-link{background:var(--card3);border-color:var(--border)}
 .bubble-doc-link:hover{transform:translateX(2px);background:rgba(255,255,255,.24)}
 .bubble.user .bubble-doc-link:hover{background:var(--card2)}
-.bubble-actions{position:absolute;top:-38px;background:var(--card);border:1px solid var(--border);
-  border-radius:10px;padding:4px 7px;display:none;gap:4px;white-space:nowrap;z-index:20;
+
+/* Floating action bar (react / edit / delete). One element for the whole page,
+   position:fixed -> it can never be clipped by the scrolling chat box. */
+.action-bar{position:fixed;z-index:200;display:none;align-items:center;gap:2px;background:var(--card);
+  border:1px solid var(--border);border-radius:12px;padding:4px 6px;white-space:nowrap;
   box-shadow:0 8px 24px rgba(0,0,0,.4);animation:popIn .15s}
-.bubble-wrap.admin .bubble-actions{right:0}
-.bubble-wrap.user .bubble-actions{left:0}
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.94)}to{opacity:1;transform:none}}
-.bubble-actions button.emoji-btn{background:none;border:none;font-size:1rem;cursor:pointer;
-  padding:3px 5px;border-radius:6px;transition:all .15s;line-height:1}
-.bubble-actions button.emoji-btn:hover{background:var(--card2);transform:scale(1.25)}
+.action-bar .emoji-btn{background:none;border:none;font-size:1.05rem;cursor:pointer;
+  padding:4px 6px;border-radius:8px;transition:all .15s;line-height:1}
+.action-bar .emoji-btn:hover{background:var(--card2);transform:scale(1.2)}
+.action-bar .emoji-btn.active{background:rgba(var(--accent-rgb),.25)}
+.action-bar .sep{width:1px;height:18px;background:var(--border);margin:0 4px}
+.action-bar .btn-ghost{font-size:.78rem;padding:6px 8px}
 
 .media-placeholder{
-  display:flex;align-items:center;gap:10px;padding:12px 15px;border-radius:12px;
+  display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:12px;
   background:rgba(0,0,0,.18);border:1px dashed rgba(255,255,255,.2);cursor:pointer;
-  font-size:.8rem;font-weight:500;max-width:260px;transition:all .18s;margin-bottom:4px;color:inherit}
+  font-size:.8rem;font-weight:500;max-width:280px;transition:all .18s;color:inherit}
 .bubble.user .media-placeholder{background:var(--card3);border-color:var(--border)}
-.media-placeholder:hover{background:rgba(124,108,255,.2);border-color:var(--accent);transform:translateY(-1px)}
-.media-placeholder i{font-size:1.05rem}
+.media-placeholder:hover{background:rgba(var(--accent-rgb),.2);border-color:var(--accent);transform:translateY(-1px)}
+.media-placeholder i{font-size:1.1rem}
 
-.reactions-row{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;min-height:0}
+.reactions-row{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
+.reactions-row:empty{display:none}
 .bubble-wrap.admin .reactions-row{justify-content:flex-end}
 .reaction-chip{
-  display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:99px;
-  background:var(--card2);border:1px solid var(--border);font-size:.72rem;font-weight:600;
-  cursor:pointer;transition:all .15s;user-select:none;line-height:1.4;
+  display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:99px;
+  background:var(--card2);border:1px solid var(--border);font-size:.78rem;font-weight:600;
+  cursor:pointer;transition:all .18s;user-select:none;
 }
-.reaction-chip:hover{background:var(--card3);transform:translateY(-1px);border-color:var(--accent)}
-.reaction-chip .cnt{font-size:.66rem;color:var(--muted);font-weight:700}
+.reaction-chip.mine{border-color:var(--accent);background:rgba(var(--accent-rgb),.16)}
+.reaction-chip.theirs{border-color:var(--accent2);background:rgba(var(--accent2-rgb),.14)}
+.reaction-chip.mine.theirs{border-color:var(--accent3)}
+.reaction-chip:hover{background:var(--card3);transform:translateY(-1px)}
+.reaction-chip .cnt{font-size:.7rem;color:var(--muted);font-weight:700}
 .reaction-chip.pulse{animation:reactPulse .4s}
 @keyframes reactPulse{0%{transform:scale(1)}50%{transform:scale(1.25)}100%{transform:scale(1)}}
 
 .chat-input-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
-  padding:12px;margin-top:10px;box-shadow:var(--shadow)}
+  padding:14px;margin-top:12px;box-shadow:var(--shadow)}
 .chat-textarea{flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);
-  padding:10px 13px;border-radius:12px;font-size:.86rem;resize:none;min-height:42px;max-height:150px;
+  padding:11px 14px;border-radius:12px;font-size:.86rem;resize:none;min-height:44px;max-height:150px;
   font-family:inherit;transition:all .18s}
-.chat-textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,108,255,.12)}
-.chat-input-row{display:flex;gap:8px;align-items:flex-end}
-.btn-attach{background:var(--card2);border:1px solid var(--border);color:var(--muted);width:42px;height:42px;
+.chat-textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(var(--accent-rgb),.12)}
+.chat-input-row{display:flex;gap:9px;align-items:flex-end}
+.btn-attach{background:var(--card2);border:1px solid var(--border);color:var(--muted);width:44px;height:44px;
   border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
   transition:all .18s}
-.btn-attach:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
-.btn-send{background:var(--grad);border:none;color:#fff;width:auto;padding:0 20px;height:42px;
+.btn-attach:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(var(--accent-rgb),.25)}
+.btn-send{background:var(--grad);border:none;color:#fff;width:auto;padding:0 20px;height:44px;
   border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
   flex-shrink:0;font-weight:600;font-size:.82rem;transition:all .18s;font-family:inherit;
-  box-shadow:0 4px 14px rgba(124,108,255,.4)}
-.btn-send:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(124,108,255,.55)}
+  box-shadow:0 4px 14px rgba(var(--accent-rgb),.4)}
+.btn-send:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(var(--accent-rgb),.55)}
 .btn-send:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
-.file-preview-card{display:none;align-items:center;gap:12px;padding:10px 13px;margin-bottom:10px;
+.file-preview-card{display:none;align-items:center;gap:12px;padding:11px 14px;margin-bottom:10px;
   background:var(--card2);border:1px solid var(--accent);border-radius:12px;animation:msgIn .25s}
-.file-preview-thumb{width:52px;height:52px;border-radius:10px;object-fit:cover;flex-shrink:0}
-.file-preview-icon{width:52px;height:52px;border-radius:10px;flex-shrink:0;font-size:1.5rem;
-  display:flex;align-items:center;justify-content:center;background:rgba(124,108,255,.15)}
+.file-preview-thumb{width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0}
+.file-preview-icon{width:56px;height:56px;border-radius:10px;flex-shrink:0;font-size:1.6rem;
+  display:flex;align-items:center;justify-content:center;background:rgba(var(--accent-rgb),.15)}
 .file-preview-info{flex:1;min-width:0}
 .file-preview-name{font-size:.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-preview-size{font-size:.72rem;color:var(--muted);margin-top:3px}
@@ -134,19 +166,19 @@
 .upload-progress{display:none;height:4px;background:var(--card2);border-radius:2px;margin-top:8px;overflow:hidden}
 .upload-progress-bar{height:100%;background:var(--grad);width:0%;transition:width .3s;border-radius:2px}
 
-.date-sep{text-align:center;color:var(--muted);font-size:.7rem;margin:8px 0;display:flex;
+.date-sep{text-align:center;color:var(--muted);font-size:.72rem;margin:10px 0;display:flex;
   align-items:center;gap:10px;font-weight:500}
 .date-sep::before,.date-sep::after{content:'';flex:1;height:1px;background:var(--border)}
 
 .new-msg-flash{animation:flash 1.5s ease}
-@keyframes flash{0%,100%{background:transparent}30%{background:rgba(124,108,255,.15)}}
+@keyframes flash{0%,100%{background:transparent}30%{background:rgba(var(--accent-rgb),.15)}}
 
 .blocked-banner{background:linear-gradient(90deg,var(--red),#c1303e);color:#fff;
-  text-align:center;padding:10px 18px;border-radius:var(--radius);font-size:.82rem;margin-bottom:10px;
+  text-align:center;padding:11px 18px;border-radius:var(--radius);font-size:.82rem;margin-bottom:10px;
   font-weight:600;box-shadow:0 4px 14px rgba(255,77,94,.35)}
 
 .load-more-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);
-  padding:8px 20px;border-radius:99px;font-size:.76rem;cursor:pointer;margin:4px auto 8px;display:block;
+  padding:8px 20px;border-radius:99px;font-size:.76rem;cursor:pointer;margin:6px auto;display:block;
   transition:all .18s;font-family:inherit;font-weight:600}
 .load-more-btn:hover{background:var(--card3);color:var(--text);border-color:var(--accent)}
 
@@ -166,16 +198,19 @@
 .profile-meta-label{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:700}
 .profile-meta-val{font-size:.85rem;font-weight:700;margin-top:4px}
 .profile-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+@media(max-width:640px){.bubble{max-width:86%}}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="chat-shell" data-reactions="{{ reactions|tojson|forceescape }}">
+<div class="chat-shell">
   {% if meta.blocked %}
     <div class="blocked-banner">🚫 This user is blocked — they can't send messages or receive replies.</div>
   {% endif %}
 
-  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+    <button class="btn btn-secondary btn-sm" id="searchToggle" onclick="toggleSearch()" title="Search in this chat">
+      <i class="fa-solid fa-magnifying-glass"></i> Search</button>
     {% if meta.blocked %}
       <button class="btn btn-secondary btn-sm" onclick="setBlock(false)">
         <i class="fa-solid fa-lock-open"></i> Unblock</button>
@@ -185,81 +220,24 @@
     {% endif %}
   </div>
 
+  <div class="search-bar" id="searchBar">
+    <i class="fa-solid fa-magnifying-glass" style="color:var(--muted)"></i>
+    <input class="sb-input" id="searchInput" type="search" placeholder="Search messages…" autocomplete="off"
+           oninput="onSearchInput()" onkeydown="onSearchKey(event)"/>
+    <span class="sb-count" id="searchCount"></span>
+    <button class="sb-btn" id="sbUp" onclick="searchStep(1)" title="Older match (↑)" disabled>
+      <i class="fa-solid fa-chevron-up"></i></button>
+    <button class="sb-btn" id="sbDown" onclick="searchStep(-1)" title="Newer match (↓)" disabled>
+      <i class="fa-solid fa-chevron-down"></i></button>
+    <button class="sb-btn" onclick="toggleSearch(false)" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+
   <div class="chat-messages" id="chatBox">
-    <div id="loadMoreWrap" style="text-align:center">
-      {% if has_more %}
-        <button class="load-more-btn" onclick="loadOlder()">
-          <i class="fa-solid fa-arrow-up"></i> Load earlier messages</button>
-      {% endif %}
-    </div>
-    <div id="msgsContainer">
-    {% set last_date = namespace(val='') %}
-    {% for m in messages %}
-      {% set msg_date = (m.time or '')[:10] %}
-      {% if msg_date != last_date.val %}
-        <div class="date-sep">{{ msg_date }}</div>
-        {% set last_date.val = msg_date %}
-      {% endif %}
-      {% set is_admin = m.from == 'admin' %}
-      <div class="bubble-wrap {{ 'admin' if is_admin else 'user' }}"
-           id="msg_{{ m.msg_id }}" data-mid="{{ m.msg_id }}" data-ts="{{ m.ts or 0 }}">
-
-        {% if not m.deleted %}
-        <div class="bubble-actions">
-          {% if is_admin %}
-            <button class="btn-ghost" style="font-size:.72rem" title="Edit"
-              onclick="editMsg('{{ m.msg_id }}', {{ (m.text or '')|tojson }})">
-              <i class="fa-solid fa-pen"></i></button>
-          {% endif %}
-          <button class="btn-ghost" style="font-size:.72rem;color:var(--red)" title="Delete"
-            onclick="deleteMsg('{{ m.msg_id }}')">
-            <i class="fa-solid fa-trash"></i></button>
-        </div>
-        {% endif %}
-
-        {% if m.deleted %}
-          <div class="bubble {{ 'admin' if is_admin else 'user' }} deleted">
-            <i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted
-          </div>
-        {% else %}
-          <div class="bubble {{ 'admin' if is_admin else 'user' }}">
-            {% if m.type == 'photo' and m.file_id %}
-              <div class="media-placeholder" onclick="loadMedia(this,'image','{{ m.msg_id }}')">
-                <i class="fa-solid fa-image"></i> Load image
-              </div>
-            {% elif m.type == 'video' and m.file_id %}
-              <div class="media-placeholder" onclick="loadMedia(this,'video','{{ m.msg_id }}')">
-                <i class="fa-solid fa-video"></i> Load video
-              </div>
-            {% elif m.type == 'document' and m.file_id %}
-              <a class="bubble-doc-link" href="{{ url_for('chat_file_download', cid=cid, mid=m.msg_id) }}" download>
-                <span style="font-size:1.4rem">📄</span>
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">
-                  {{ m.file_name or 'Download file' }}</span>
-                <i class="fa-solid fa-download" style="font-size:.72rem;opacity:.75"></i>
-              </a>
-            {% endif %}
-            {% if m.text %}<span class="bubble-text">{{ m.text }}</span>{% endif %}
-            {% if m.edited %}<span style="font-size:.66rem;opacity:.6;margin-left:4px">(edited)</span>{% endif %}
-          </div>
-        {% endif %}
-
-        <div class="reactions-row" data-react-row="{{ m.msg_id }}"></div>
-
-        <div class="bubble-meta">
-          {{ (m.time or '') }}
-          {% if is_admin %}
-            <span data-tick="{{ m.msg_id }}" style="color:{{ 'var(--accent3)' if m.read else 'inherit' }}">
-              {{ '✓✓' if m.read else '✓' }}</span>
-          {% endif %}
-        </div>
-      </div>
-    {% else %}
-      <div class="empty-state" style="flex:1;justify-content:center">
-        <i class="fa-solid fa-comments"></i><p>No messages yet</p>
-        <p class="sub">Send the first message below</p>
-      </div>
-    {% endfor %}
+    <div id="loadMoreWrap" style="text-align:center"></div>
+    <div id="msgsContainer"></div>
+    <div id="emptyState" class="empty-state" style="display:none;flex:1;justify-content:center">
+      <i class="fa-solid fa-comments"></i><p>No messages yet</p>
+      <p class="sub">Send the first message below</p>
     </div>
   </div>
 
@@ -286,7 +264,7 @@
       <button class="btn-send" id="sendBtn" onclick="sendMsg()">
         <i class="fa-solid fa-paper-plane"></i> Send</button>
     </div>
-    <div id="sendStatus" style="font-size:.72rem;color:var(--muted);margin-top:6px;min-height:14px"></div>
+    <div id="sendStatus" style="font-size:.72rem;color:var(--muted);margin-top:8px;min-height:14px"></div>
   </div>
 </div>
 
@@ -296,7 +274,7 @@
     <h3 style="margin-bottom:16px;font-weight:700;font-size:1.05rem">✏️ Edit Message</h3>
     <input type="hidden" id="editMid"/>
     <div class="form-group"><textarea id="editText" class="form-control" rows="4"></textarea></div>
-    <button class="btn btn-primary" style="width:100%" onclick="submitEdit()">
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitEdit()">
       <i class="fa-solid fa-save"></i> Save Changes</button>
   </div>
 </div>
@@ -336,412 +314,563 @@
             <i class="fa-solid fa-ban"></i> Block User</button>
         {% endif %}
         {% if meta.username %}
-          <a class="btn btn-secondary btn-sm" href="https://t.me/{{ meta.username }}" target="_blank">
+          <a class="btn btn-secondary btn-sm" href="https://t.me/{{ meta.username }}" target="_blank" rel="noopener">
             <i class="fa-brands fa-telegram"></i> Open Telegram</a>
         {% endif %}
       </div>
     </div>
   </div>
 </div>
+
+<script id="chatData" type="application/json">{{ payload|tojson }}</script>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const CID = "{{ cid }}";
-const REACTIONS = {{ reactions|tojson }};
-let lastTs = {{ (messages[-1].ts if messages else 0) or 0 }};
-let oldestTs = {{ (messages[0].ts if messages else 0) or 0 }};
-let hasMore = {{ 'true' if has_more else 'false' }};
-let selectedFile = null;
-let isSending = false;
+(function(){
+const $ = id => document.getElementById(id);
+const DATA = JSON.parse($('chatData').textContent);
+const CID = DATA.cid, REACTIONS = DATA.reactions, PAGE = DATA.page_size;
+const msgs = new Map();      // msg_id -> latest message object
+const els  = new Map();      // msg_id -> .bubble-wrap element
+let lastTs = 0, oldestTs = 0, hasMore = DATA.has_more, total = DATA.total || 0;
+let selectedFile = null, isSending = false, lastDate = '';
+const box = $('chatBox'), container = $('msgsContainer');
 
-const box = document.getElementById('chatBox');
-const container = document.getElementById('msgsContainer');
-box.scrollTop = box.scrollHeight;
+function el(tag, cls, text){
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(text != null) e.textContent = text;
+  return e;
+}
+const dateOf = m => (m.time || '').slice(0, 10);
+const isNearBottom = () => box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+function scrollBottom(smooth){
+  if(smooth) box.scrollTo({top: box.scrollHeight, behavior: 'smooth'});
+  else box.scrollTop = box.scrollHeight;
+}
 
-function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,150)+'px';}
-function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}}
+// ── Rendering (one code path for every message → every bubble looks the same) ──
+let searchTerm = '';
+function appendText(parent, text){
+  if(!searchTerm){ parent.textContent = text; return; }
+  const re = new RegExp('(' + searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  text.split(re).forEach((part, i) => {
+    if(!part) return;
+    if(i % 2){ const mk = el('mark', 'hl'); mk.textContent = part; parent.appendChild(mk); }
+    else parent.appendChild(document.createTextNode(part));
+  });
+}
+function fillBubble(bubble, m){
+  bubble.textContent = '';
+  bubble.classList.toggle('deleted', !!m.deleted);
+  if(m.deleted){                          // WhatsApp-Business style: just a ❌ marker
+    bubble.appendChild(document.createTextNode('❌ Deleted'));
+    return;
+  }
+  if(m.file_id && m.type === 'photo'){
+    const p = el('div', 'media-placeholder');
+    p.innerHTML = '<i class="fa-solid fa-image"></i> Load image';
+    p.onclick = () => loadMedia(p, 'image', m.msg_id);
+    bubble.appendChild(p);
+  } else if(m.file_id && m.type === 'video'){
+    const p = el('div', 'media-placeholder');
+    p.innerHTML = '<i class="fa-solid fa-video"></i> Load video';
+    p.onclick = () => loadMedia(p, 'video', m.msg_id);
+    bubble.appendChild(p);
+  } else if(m.file_id && m.type === 'document'){
+    const a = el('a', 'bubble-doc-link');
+    a.href = `/chat/${CID}/file/${encodeURIComponent(m.msg_id)}/download`;
+    a.setAttribute('download', '');
+    a.appendChild(el('span', '', '📄')).style.fontSize = '1.4rem';
+    const nm = el('span');
+    nm.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+    appendText(nm, m.file_name || 'Download file');
+    a.appendChild(nm);
+    const dl = el('i', 'fa-solid fa-download'); dl.style.cssText = 'font-size:.72rem;opacity:.75';
+    a.appendChild(dl);
+    bubble.appendChild(a);
+  }
+  if(m.text){ const t = el('div', 'msg-text'); appendText(t, m.text); bubble.appendChild(t); }
+}
 
+// time · edited · ticks (outside the bubble, like WhatsApp)
+function buildMeta(meta, m){
+  meta.textContent = '';
+  if(m.broadcast) meta.appendChild(document.createTextNode('📢'));
+  if(m.deleted){
+    meta.appendChild(el('span', 'del-x', '❌'));
+  } else if(m.edited){
+    const e = el('span', 'edited-tag'); e.innerHTML = '<i class="fa-solid fa-pen" style="font-size:.6rem"></i> edited';
+    meta.appendChild(e);
+  }
+  const t = el('span', '', clock12(m.time)); t.title = m.time || '';
+  meta.appendChild(t);
+  if(m.from === 'admin' && !m.deleted){
+    const k = el('span', 'tick', m.read ? '✓✓' : '✓');
+    k.style.color = m.read ? 'var(--accent3)' : 'inherit';
+    meta.appendChild(k);
+  }
+}
+
+function renderReactions(mid, rx){
+  const wrap = els.get(mid); if(!wrap) return;
+  const row = wrap.querySelector('.reactions-row');
+  row.textContent = '';
+  const admin = (rx && rx.admin) || [], user = (rx && rx.user) || [];
+  [...new Set([...admin, ...user])].forEach(e => {
+    const a = admin.includes(e), u = user.includes(e);
+    const chip = el('span', 'reaction-chip' + (a ? ' mine' : '') + (u ? ' theirs' : ''));
+    chip.appendChild(el('span', '', e));
+    const n = (a ? 1 : 0) + (u ? 1 : 0);
+    if(n > 1) chip.appendChild(el('span', 'cnt', String(n)));
+    chip.title = [a ? 'You' : null, u ? 'User' : null].filter(Boolean).join(' & ') +
+                 (a ? ' — click to remove yours' : ' — click to react the same');
+    chip.onclick = () => reactTo(mid, e);
+    row.appendChild(chip);
+  });
+}
+
+function renderBubble(m){
+  const side = m.from === 'admin' ? 'admin' : 'user';
+  const wrap = el('div', 'bubble-wrap ' + side);
+  wrap.id = 'msg_' + m.msg_id; wrap.dataset.mid = m.msg_id; wrap.dataset.ts = m.ts || 0;
+  const bubble = el('div', 'bubble ' + side);
+  fillBubble(bubble, m);
+  wrap.appendChild(bubble);
+  wrap.appendChild(el('div', 'reactions-row'));
+  const meta = el('div', 'bubble-meta');
+  buildMeta(meta, m);
+  wrap.appendChild(meta);
+  msgs.set(m.msg_id, m); els.set(m.msg_id, wrap);
+  renderReactions(m.msg_id, m.reactions);
+  if(m.ts && m.ts > lastTs) lastTs = m.ts;
+  if(m.ts && (!oldestTs || m.ts < oldestTs)) oldestTs = m.ts;
+  return wrap;
+}
+
+function addSep(parent, d, state){
+  if(d && d !== state.last){
+    const s = el('div', 'date-sep', dayLabel(d)); s.dataset.date = d;
+    parent.appendChild(s); state.last = d;
+  }
+}
+const tail = {last: ''};
+function appendMessage(m, fromPoll){
+  if(msgs.has(m.msg_id)) return false;
+  const stick = isNearBottom();
+  $('emptyState').style.display = 'none';
+  addSep(container, dateOf(m), tail);
+  container.appendChild(renderBubble(m));
+  total += 1; $('msgCount').textContent = total;
+  if(!fromPoll || stick || m.from === 'admin') scrollBottom(fromPoll);
+  return true;
+}
+function prependMessages(list){
+  list = list.filter(m => !msgs.has(m.msg_id));
+  if(!list.length) return 0;
+  const frag = document.createDocumentFragment();
+  const st = {last: ''};
+  list.forEach(m => { addSep(frag, dateOf(m), st); frag.appendChild(renderBubble(m)); });
+  const first = container.firstElementChild;
+  if(first && first.classList.contains('date-sep') && first.dataset.date === st.last) first.remove();
+  container.insertBefore(frag, container.firstChild);
+  return list.length;
+}
+
+// ── Initial render ──
+(function init(){
+  (DATA.messages || []).forEach(m => {
+    addSep(container, dateOf(m), tail);
+    container.appendChild(renderBubble(m));
+  });
+  if(!DATA.messages.length) $('emptyState').style.display = 'flex';
+  setLoadMore();
+  scrollBottom(false);
+})();
+
+function setLoadMore(){
+  const wrap = $('loadMoreWrap');
+  wrap.textContent = '';
+  if(!hasMore) return;
+  const b = el('button', 'load-more-btn');
+  b.innerHTML = '<i class="fa-solid fa-arrow-up"></i> Load earlier messages';
+  b.onclick = loadOlder;
+  wrap.appendChild(b);
+}
+async function loadOlder(){
+  if(!hasMore || !oldestTs) return;
+  const btn = document.querySelector('.load-more-btn');
+  if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading…';
+  try{
+    const d = await api(`/chat/${CID}/messages?before_ts=${oldestTs}&limit=${PAGE}`);
+    const prevH = box.scrollHeight, prevTop = box.scrollTop;
+    const added = prependMessages(d.messages || []);
+    hasMore = !!d.has_more && added > 0;
+    box.scrollTop = box.scrollHeight - prevH + prevTop;
+    setLoadMore();
+  }catch(e){ toast('Failed to load older messages: ' + e.message, 'err'); setLoadMore(); }
+}
+
+function loadMedia(placeholder, kind, mid){
+  placeholder.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading…';
+  const url = `/chat/${CID}/file/${encodeURIComponent(mid)}/view`;
+  const fail = () => { placeholder.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Failed to load — click to retry'; };
+  if(kind === 'image'){
+    const img = document.createElement('img');
+    img.onload = () => { placeholder.replaceWith(img); };
+    img.onclick = () => window.open(url, '_blank');
+    img.onerror = fail; img.src = url;
+  } else {
+    const vid = document.createElement('video');
+    vid.controls = true; vid.preload = 'metadata';
+    vid.onloadedmetadata = () => { placeholder.replaceWith(vid); };
+    vid.onerror = fail; vid.src = url;
+  }
+}
+
+// ── Live updates ──
+function updateExisting(m){
+  const old = msgs.get(m.msg_id), wrap = els.get(m.msg_id);
+  if(!old || !wrap) return;
+  const rebuild = !!old.deleted !== !!m.deleted || (old.text || '') !== (m.text || '');
+  const metaChanged = rebuild || !!old.edited !== !!m.edited || !!old.read !== !!m.read;
+  const rxChanged = JSON.stringify(old.reactions) !== JSON.stringify(m.reactions);
+  Object.assign(old, m);
+  if(rebuild) fillBubble(wrap.querySelector('.bubble'), old);
+  if(metaChanged) buildMeta(wrap.querySelector('.bubble-meta'), old);
+  if(rxChanged) renderReactions(m.msg_id, old.reactions);
+}
+let polling = false;
+async function poll(){
+  if(polling || document.hidden) return;
+  polling = true;
+  try{
+    const d = await api(`/chat/${CID}/messages?after_ts=${lastTs}&visible=1`);
+    (d.messages || []).forEach(m => {
+      if(msgs.has(m.msg_id)){ updateExisting(m); return; }
+      if(appendMessage(m, true) && m.from === 'user'){
+        const w = els.get(m.msg_id); if(w) w.classList.add('new-msg-flash');
+        notifyNew();
+      }
+    });
+    (d.updates || []).forEach(updateExisting);
+  }catch(e){} finally { polling = false; }
+}
+function notifyNew(){
+  if(document.hidden || !DATA.sound) return;
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; o.type = 'sine';
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.28);
+    o.start(); o.stop(ctx.currentTime + 0.3);
+  }catch(e){}
+}
+const pollTimer = setInterval(poll, 3500);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) poll(); });
+window.addEventListener('pagehide', () => clearInterval(pollTimer));
+
+// ── Floating action bar ──
+const bar = el('div', 'action-bar'); document.body.appendChild(bar);
+let barMid = null, hideTimer = null, shownAt = 0;
+function buildBar(m){
+  bar.textContent = '';
+  const mine = (m.reactions && m.reactions.admin) || [];
+  REACTIONS.forEach(e => {
+    const b = el('button', 'emoji-btn' + (mine.includes(e) ? ' active' : ''), e);
+    b.title = 'React ' + e;
+    b.onclick = ev => { ev.stopPropagation(); hideBar(); reactTo(m.msg_id, e); };
+    bar.appendChild(b);
+  });
+  bar.appendChild(el('span', 'sep'));
+  if(m.from === 'admin' && m.type === 'text'){
+    const b = el('button', 'btn-ghost'); b.title = 'Edit';
+    b.innerHTML = '<i class="fa-solid fa-pen"></i>';
+    b.onclick = ev => { ev.stopPropagation(); hideBar(); editMsg(m.msg_id); };
+    bar.appendChild(b);
+  }
+  const d = el('button', 'btn-ghost'); d.title = 'Delete'; d.style.color = 'var(--red)';
+  d.innerHTML = '<i class="fa-solid fa-trash"></i>';
+  d.onclick = ev => { ev.stopPropagation(); hideBar(); deleteMsg(m.msg_id); };
+  bar.appendChild(d);
+}
+function openBar(wrap){
+  const m = msgs.get(wrap.dataset.mid);
+  if(!m || m.deleted) { hideBar(); return; }
+  clearTimeout(hideTimer);
+  buildBar(m);
+  barMid = m.msg_id; shownAt = Date.now();
+  bar.style.display = 'flex';
+  const rect = wrap.querySelector('.bubble').getBoundingClientRect();
+  const bw = bar.offsetWidth, bh = bar.offsetHeight;
+  let top = rect.top - bh - 6;
+  if(top < 76) top = rect.bottom + 6;
+  if(top + bh > innerHeight - 8) top = Math.max(76, innerHeight - bh - 8);
+  let left = wrap.classList.contains('admin') ? rect.right - bw : rect.left;
+  left = Math.min(Math.max(8, left), innerWidth - bw - 8);
+  bar.style.top = top + 'px'; bar.style.left = left + 'px';
+}
+function hideBar(){ clearTimeout(hideTimer); bar.style.display = 'none'; barMid = null; }
+function scheduleHide(){ clearTimeout(hideTimer); hideTimer = setTimeout(hideBar, 260); }
+container.addEventListener('mouseover', e => {
+  const wrap = e.target.closest('.bubble-wrap'); if(!wrap) return;
+  if(barMid === wrap.dataset.mid){ clearTimeout(hideTimer); return; }
+  openBar(wrap);
+});
+container.addEventListener('mouseout', e => {
+  const wrap = e.target.closest('.bubble-wrap'); if(!wrap) return;
+  if(wrap.contains(e.relatedTarget)) return;
+  scheduleHide();
+});
+bar.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+bar.addEventListener('mouseleave', scheduleHide);
+// touch screens: tap a bubble to open/close the bar
+container.addEventListener('click', e => {
+  if(e.target.closest('a,.media-placeholder,img,video,.reaction-chip')) return;
+  const wrap = e.target.closest('.bubble-wrap'); if(!wrap) return;
+  if(Date.now() - shownAt < 350 && barMid === wrap.dataset.mid) return;   // tap = mouseover + click
+  if(barMid === wrap.dataset.mid) hideBar(); else openBar(wrap);
+});
+document.addEventListener('click', e => {
+  if(!e.target.closest('.bubble-wrap') && !e.target.closest('.action-bar')) hideBar();
+});
+box.addEventListener('scroll', hideBar);
+window.addEventListener('resize', hideBar);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') hideBar(); });
+
+// ── Reactions ──
+async function reactTo(mid, emoji){
+  try{
+    const fd = new FormData(); fd.append('emoji', emoji); fd.append('action', 'add');
+    const d = await api(`/chat/${CID}/message/${encodeURIComponent(mid)}/react`, {method: 'POST', body: fd});
+    if(d.ok){
+      const m = msgs.get(mid); if(m) m.reactions = d.reactions;
+      renderReactions(mid, d.reactions);
+      const w = els.get(mid), chip = w && w.querySelector('.reaction-chip.mine');
+      if(chip){ chip.classList.add('pulse'); setTimeout(() => chip.classList.remove('pulse'), 420); }
+      if(d.warning) toast(d.warning, 'info', 6000);
+    } else toast(d.error || 'Failed', 'err');
+  }catch(e){ toast('Error: ' + e.message, 'err'); }
+}
+
+// ── Edit / delete / block ──
+function editMsg(mid){
+  const m = msgs.get(mid); if(!m) return;
+  $('editMid').value = mid; $('editText').value = m.text || '';
+  openModal('editModal');
+}
+window.submitEdit = async function(){
+  const mid = $('editMid').value, text = $('editText').value.trim();
+  if(!text) return;
+  const fd = new FormData(); fd.append('text', text);
+  try{
+    const d = await api(`/chat/${CID}/message/${encodeURIComponent(mid)}/edit`, {method: 'POST', body: fd});
+    if(d.ok){
+      closeModal('editModal');
+      const m = msgs.get(mid);
+      if(m){ m.text = text; m.edited = true; const w = els.get(mid);
+             fillBubble(w.querySelector('.bubble'), m); buildMeta(w.querySelector('.bubble-meta'), m); }
+      toast('Message edited', 'ok');
+      if(d.warning) toast(d.warning, 'info', 6000);
+    } else toast(d.error || 'Failed', 'err', 5000);
+  }catch(e){ toast('Error: ' + e.message, 'err'); }
+};
+async function deleteMsg(mid){
+  if(!confirm('Delete this message? It stays in the database, but shows as deleted.')) return;
+  try{
+    const d = await api(`/chat/${CID}/message/${encodeURIComponent(mid)}/delete`, {method: 'POST'});
+    if(d.ok){
+      const m = msgs.get(mid);
+      if(m){ m.deleted = true; const w = els.get(mid);
+             fillBubble(w.querySelector('.bubble'), m); buildMeta(w.querySelector('.bubble-meta'), m); }
+      toast('Message deleted', 'ok');
+      if(d.warning) toast(d.warning, 'info', 6000);
+    } else toast(d.error || 'Failed', 'err');
+  }catch(e){ toast('Error: ' + e.message, 'err'); }
+}
+window.setBlock = async function(blocked){
+  try{
+    const d = await api(`/chat/${CID}/${blocked ? 'block' : 'unblock'}`, {method: 'POST'});
+    if(d.ok){ toast(blocked ? 'User blocked' : 'User unblocked', 'ok'); setTimeout(() => location.reload(), 500); }
+    else toast(d.error || 'Failed', 'err');
+  }catch(e){ toast('Network error: ' + e.message, 'err'); }
+};
+
+// ── Message search (Telegram style: ↑ older match, ↓ newer match) ──
+let matches = [], matchPos = 0, searchTimer = null, searchSeq = 0;
+window.toggleSearch = function(force){
+  const bar_ = $('searchBar');
+  const open = force === undefined ? !bar_.classList.contains('open') : force;
+  bar_.classList.toggle('open', open);
+  if(open){ $('searchInput').focus(); $('searchInput').select(); }
+  else { $('searchInput').value = ''; setSearchTerm(''); matches = []; updateSearchUi(); }
+};
+window.onSearchInput = function(){
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 300);
+};
+window.onSearchKey = function(e){
+  if(e.key === 'Enter'){ e.preventDefault(); searchStep(e.shiftKey ? -1 : 1); }
+  else if(e.key === 'ArrowUp'){ e.preventDefault(); searchStep(1); }
+  else if(e.key === 'ArrowDown'){ e.preventDefault(); searchStep(-1); }
+  else if(e.key === 'Escape'){ toggleSearch(false); }
+};
+function setSearchTerm(t){
+  if(t === searchTerm) return;
+  searchTerm = t;
+  msgs.forEach((m, id) => { const w = els.get(id); if(w && !m.deleted) fillBubble(w.querySelector('.bubble'), m); });
+}
+function updateSearchUi(){
+  const c = $('searchCount'), q = $('searchInput').value.trim();
+  if(!q){ c.textContent = ''; c.classList.remove('none'); }
+  else if(!matches.length){ c.textContent = 'No results'; c.classList.add('none'); }
+  else { c.classList.remove('none'); c.textContent = `${matchPos + 1} of ${matches.length}`; }
+  $('sbUp').disabled = !(matches.length && matchPos < matches.length - 1);      // older exists
+  $('sbDown').disabled = !(matches.length && matchPos > 0);                      // newer exists
+}
+async function runSearch(){
+  const q = $('searchInput').value.trim();
+  const seq = ++searchSeq;
+  if(!q){ setSearchTerm(''); matches = []; updateSearchUi(); return; }
+  $('searchCount').textContent = 'Searching…';
+  try{
+    const d = await api(`/chat/${CID}/search?q=${encodeURIComponent(q)}`);
+    if(seq !== searchSeq) return;                         // a newer query is already running
+    matches = d.matches || [];
+    setSearchTerm(q);
+    matchPos = 0;                                         // start at the newest match
+    updateSearchUi();
+    if(matches.length) await gotoMatch(0);
+  }catch(e){ $('searchCount').textContent = 'Error'; toast('Search failed: ' + e.message, 'err'); }
+}
+window.searchStep = function(dir){
+  const n = matchPos + dir;                               // dir +1 = older, -1 = newer
+  if(n < 0 || n >= matches.length) return;
+  gotoMatch(n);
+};
+async function gotoMatch(pos){
+  matchPos = pos; updateSearchUi();
+  const id = matches[matches.length - 1 - pos].msg_id;
+  if(!els.has(id)){
+    try{
+      const d = await api(`/chat/${CID}/messages?around=${encodeURIComponent(id)}`);
+      if(d.error) throw new Error(d.error);
+      resetList(d.messages || [], !!d.has_more);
+    }catch(e){ toast('Could not load that message: ' + e.message, 'err'); return; }
+  }
+  const w = els.get(id); if(!w) return;
+  document.querySelectorAll('.bubble.search-focus').forEach(b => b.classList.remove('search-focus'));
+  const b = w.querySelector('.bubble');
+  w.scrollIntoView({block: 'center', behavior: 'smooth'});
+  b.classList.add('search-focus');
+  setTimeout(() => b.classList.remove('search-focus'), 2600);
+}
+function resetList(list, more){
+  container.textContent = '';
+  msgs.clear(); els.clear();
+  tail.last = ''; lastTs = 0; oldestTs = 0; hasMore = more;
+  list.forEach(m => { addSep(container, dateOf(m), tail); container.appendChild(renderBubble(m)); });
+  setLoadMore();
+}
+
+// ── Composer ──
+window.autoResize = function(e){ e.style.height = 'auto'; e.style.height = Math.min(e.scrollHeight, 150) + 'px'; };
+window.handleKey = function(e){ if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); } };
 function fmtSize(b){
-  if(b<1024) return b+' B';
-  if(b<1048576) return (b/1024).toFixed(1)+' KB';
-  return (b/1048576).toFixed(1)+' MB';
+  if(b < 1024) return b + ' B';
+  if(b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
 }
 function getFileIcon(mime){
   if(mime.startsWith('image/')) return '🖼️';
   if(mime.startsWith('video/')) return '🎬';
   if(mime.includes('pdf')) return '📕';
-  if(mime.includes('word')||mime.includes('document')) return '📝';
-  if(mime.includes('sheet')||mime.includes('excel')) return '📊';
-  if(mime.includes('zip')||mime.includes('rar')) return '🗜️';
+  if(mime.includes('word') || mime.includes('document')) return '📝';
+  if(mime.includes('sheet') || mime.includes('excel')) return '📊';
+  if(mime.includes('zip') || mime.includes('rar')) return '🗜️';
   return '📎';
 }
-function onFileSelected(input){
-  const file=input.files[0];
+window.onFileSelected = function(input){
+  const file = input.files[0];
   if(!file) return;
-  const maxMB = {{ max_upload_mb }};
-  if(file.size > maxMB*1024*1024){
-    toast('File exceeds '+maxMB+'MB limit','err');
-    input.value=''; return;
+  if(file.size > DATA.max_mb * 1024 * 1024){
+    toast('File exceeds ' + DATA.max_mb + 'MB limit', 'err'); input.value = ''; return;
   }
-  selectedFile=file;
-  const card=document.getElementById('filePreviewCard'),
-        icon=document.getElementById('filePreviewIcon'),
-        thumb=document.getElementById('filePreviewThumb'),
-        name=document.getElementById('filePreviewName'),
-        size=document.getElementById('filePreviewSize');
-  name.textContent=file.name;
-  size.textContent=fmtSize(file.size);
-  card.style.display='flex';
+  selectedFile = file;
+  const icon = $('filePreviewIcon'), thumb = $('filePreviewThumb');
+  $('filePreviewName').textContent = file.name;
+  $('filePreviewSize').textContent = fmtSize(file.size);
+  $('filePreviewCard').style.display = 'flex';
   if(file.type.startsWith('image/')){
-    const reader=new FileReader();
-    reader.onload=e=>{thumb.src=e.target.result;thumb.style.display='block';icon.style.display='none';};
+    const reader = new FileReader();
+    reader.onload = ev => { thumb.src = ev.target.result; thumb.style.display = 'block'; icon.style.display = 'none'; };
     reader.readAsDataURL(file);
   } else {
-    thumb.style.display='none';
-    icon.style.display='flex';
-    icon.textContent=getFileIcon(file.type);
+    thumb.style.display = 'none'; icon.style.display = 'flex'; icon.textContent = getFileIcon(file.type);
   }
-}
-function clearFile(){
-  selectedFile=null;
-  document.getElementById('fileInput').value='';
-  document.getElementById('filePreviewCard').style.display='none';
-  document.getElementById('filePreviewThumb').style.display='none';
-  document.getElementById('filePreviewIcon').style.display='flex';
-}
+};
+window.clearFile = function(){
+  selectedFile = null;
+  $('fileInput').value = '';
+  $('filePreviewCard').style.display = 'none';
+  $('filePreviewThumb').style.display = 'none';
+  $('filePreviewIcon').style.display = 'flex';
+};
 function setProgress(pct){
-  const bar=document.getElementById('uploadProgress'),
-        fill=document.getElementById('uploadProgressBar');
-  if(pct===null){bar.style.display='none';fill.style.width='0%';}
-  else {bar.style.display='block';fill.style.width=pct+'%';}
-}
-
-async function sendMsg(){
-  if(isSending) return;
-  const text=document.getElementById('msgInput').value.trim();
-  const status=document.getElementById('sendStatus');
-  if(!text && !selectedFile) return;
-  if(document.querySelector('.blocked-banner')){
-    toast('User is blocked — unblock first','err'); return;
-  }
-  isSending=true;
-  document.getElementById('sendBtn').disabled=true;
-  status.textContent='⏳ Sending…';
-
-  if(selectedFile){
-    const fd=new FormData();
-    fd.append('text', text);
-    fd.append('file', selectedFile, selectedFile.name);
-    try{
-      const result=await uploadWithProgress(`/chat/${CID}/send_file`, fd, pct=>setProgress(pct));
-      setProgress(null);
-      if(result.ok){
-        status.textContent='';
-        clearFile();
-        document.getElementById('msgInput').value='';
-        autoResize(document.getElementById('msgInput'));
-        appendMessage(result.message);
-        toast('Sent','ok');
-      } else {
-        status.textContent=''; toast(result.error||'Upload failed','err');
-      }
-    }catch(e){ setProgress(null); toast('Upload error: '+e,'err'); }
-    isSending=false; document.getElementById('sendBtn').disabled=false;
-    return;
-  }
-
-  try{
-    const fd=new FormData(); fd.append('text', text);
-    const r=await fetch(`/chat/${CID}/send`,{method:'POST',body:fd});
-    const d=await r.json();
-    if(d.ok){
-      status.textContent='';
-      document.getElementById('msgInput').value='';
-      autoResize(document.getElementById('msgInput'));
-      appendMessage(d.message);
-      toast('Sent','ok');
-    } else toast(d.error||'Failed','err');
-  }catch(e){ toast('Error: '+e,'err'); }
-  isSending=false; document.getElementById('sendBtn').disabled=false;
+  const bar_ = $('uploadProgress'), fill = $('uploadProgressBar');
+  if(pct === null){ bar_.style.display = 'none'; fill.style.width = '0%'; }
+  else { bar_.style.display = 'block'; fill.style.width = pct + '%'; }
 }
 function uploadWithProgress(url, formData, onProgress){
-  return new Promise((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
-    xhr.upload.addEventListener('progress', e=>{
-      if(e.lengthComputable) onProgress(Math.round(e.loaded/e.total*90));
+    xhr.setRequestHeader('X-Requested-With', 'fetch');
+    xhr.upload.addEventListener('progress', e => { if(e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 90)); });
+    xhr.addEventListener('load', () => {
+      onProgress(100);
+      if(xhr.status === 401){ location.href = '/login'; return; }
+      try{ resolve(JSON.parse(xhr.responseText)); }catch{ reject('Invalid response (' + xhr.status + ')'); }
     });
-    xhr.addEventListener('load', ()=>{onProgress(100);try{resolve(JSON.parse(xhr.responseText));}catch{reject('Invalid response');}});
-    xhr.addEventListener('error', ()=>reject('Network error'));
+    xhr.addEventListener('error', () => reject('Network error'));
     xhr.send(formData);
   });
 }
-
-function esc(s){
-  const d=document.createElement('div');
-  d.textContent=s==null?'':s;
-  return d.innerHTML;
-}
-function renderReactions(mid, reactions){
-  const row=document.querySelector(`[data-react-row="${mid}"]`);
-  if(!row) return;
-  row.innerHTML='';
-  if(!reactions || typeof reactions!=='object') return;
-  Object.entries(reactions).forEach(([emoji, count])=>{
-    if(!count) return;
-    const chip=document.createElement('span');
-    chip.className='reaction-chip';
-    chip.innerHTML=`<span>${emoji}</span><span class="cnt">${count}</span>`;
-    chip.title='Click to remove';
-    chip.onclick=()=>reactTo(mid, emoji, 'remove');
-    row.appendChild(chip);
-  });
-}
-function renderBubble(m){
-  const isAdmin = m.from==='admin';
-  const wrap=document.createElement('div');
-  wrap.className='bubble-wrap '+(isAdmin?'admin':'user');
-  wrap.id='msg_'+m.msg_id;
-  wrap.dataset.mid=m.msg_id;
-  wrap.dataset.ts=m.ts||0;
-
-  let actions='';
-  if(!m.deleted){
-    actions='<div class="bubble-actions">';
-    REACTIONS.forEach(e=>{
-      actions+=`<button class="emoji-btn" title="React ${e}" onclick='reactTo(${JSON.stringify(m.msg_id)}, ${JSON.stringify(e)}, "add")'>${e}</button>`;
-    });
-    if(isAdmin) actions+=`<button class="btn-ghost" style="font-size:.72rem;margin-left:4px" title="Edit"
-      onclick='editMsg(${JSON.stringify(m.msg_id)}, ${JSON.stringify(m.text||'')})'>
-      <i class="fa-solid fa-pen"></i></button>`;
-    actions+=`<button class="btn-ghost" style="font-size:.72rem;color:var(--red)" title="Delete"
-      onclick='deleteMsg(${JSON.stringify(m.msg_id)})'><i class="fa-solid fa-trash"></i></button></div>`;
-  }
-
-  let body='';
-  if(m.deleted){
-    body=`<div class="bubble ${isAdmin?'admin':'user'} deleted">
-      <i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted</div>`;
-  } else {
-    let inner='';
-    if(m.type==='photo' && m.file_id){
-      inner+=`<div class="media-placeholder" onclick="loadMedia(this,'image','${esc(m.msg_id)}')">
-        <i class="fa-solid fa-image"></i> Load image</div>`;
-    } else if(m.type==='video' && m.file_id){
-      inner+=`<div class="media-placeholder" onclick="loadMedia(this,'video','${esc(m.msg_id)}')">
-        <i class="fa-solid fa-video"></i> Load video</div>`;
-    } else if(m.type==='document' && m.file_id){
-      inner+=`<a class="bubble-doc-link" href="/chat/${CID}/file/${esc(m.msg_id)}/download" download>
-        <span style="font-size:1.4rem">📄</span>
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.file_name||'Download file')}</span>
-        <i class="fa-solid fa-download" style="font-size:.72rem;opacity:.75"></i></a>`;
-    }
-    if(m.text) inner+=`<span class="bubble-text">${esc(m.text)}</span>`;
-    if(m.edited) inner+='<span style="font-size:.66rem;opacity:.6;margin-left:4px">(edited)</span>';
-    body=`<div class="bubble ${isAdmin?'admin':'user'}">${inner}</div>`;
-  }
-
-  const tick = isAdmin
-    ? `<span data-tick="${esc(m.msg_id)}" style="color:${m.read?'var(--accent3)':'inherit'}">${m.read?'✓✓':'✓'}</span>`
-    : '';
-
-  wrap.innerHTML = actions + body +
-    `<div class="reactions-row" data-react-row="${esc(m.msg_id)}"></div>` +
-    `<div class="bubble-meta">${esc(m.time||'')} ${tick}</div>`;
-  return wrap;
-}
-function appendMessage(m){
-  container.appendChild(renderBubble(m));
-  renderReactions(m.msg_id, m.reactions||{});
-  box.scrollTop = box.scrollHeight;
-  if(m.ts && m.ts > lastTs) lastTs = m.ts;
-  const countEl=document.getElementById('msgCount');
-  if(countEl) countEl.textContent = (parseInt(countEl.textContent)||0)+1;
-}
-function prependMessages(msgs){
-  const frag=document.createDocumentFragment();
-  msgs.forEach(m=>{
-    const el=renderBubble(m);
-    frag.appendChild(el);
-    setTimeout(()=>renderReactions(m.msg_id, m.reactions||{}),0);
-  });
-  container.insertBefore(frag, container.firstChild);
-  if(msgs.length && msgs[0].ts && (oldestTs===0 || msgs[0].ts < oldestTs)) oldestTs = msgs[0].ts;
-}
-
-function loadMedia(placeholder, kind, mid){
-  placeholder.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Loading…';
-  const url = `/chat/${CID}/file/${mid}/view`;
-  if(kind==='image'){
-    const img=document.createElement('img');
-    img.src=url;
-    img.onload=()=>{placeholder.replaceWith(img);};
-    img.onerror=()=>{placeholder.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Failed to load';};
-  } else {
-    const vid=document.createElement('video');
-    vid.src=url; vid.controls=true; vid.preload='metadata';
-    vid.onloadedmetadata=()=>{placeholder.replaceWith(vid);};
-    vid.onerror=()=>{placeholder.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Failed to load';};
-  }
-}
-
-async function loadOlder(){
-  if(!hasMore || !oldestTs) return;
-  const btn=document.querySelector('.load-more-btn');
-  if(btn){btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Loading…';}
+window.sendMsg = async function(){
+  if(isSending) return;
+  const input = $('msgInput');
+  const text = input.value.trim();
+  const status = $('sendStatus');
+  if(!text && !selectedFile) return;
+  if(document.querySelector('.blocked-banner')){ toast('User is blocked — unblock first', 'err'); return; }
+  isSending = true; $('sendBtn').disabled = true; status.textContent = '⏳ Sending…';
   try{
-    const r=await fetch(`/chat/${CID}/messages?before_ts=${oldestTs}&limit={{ 30 }}`);
-    const d=await r.json();
-    const prevHeight = box.scrollHeight;
-    prependMessages(d.messages);
-    hasMore = d.has_more;
-    box.scrollTop = box.scrollHeight - prevHeight + box.scrollTop;
-    if(!hasMore){
-      const wrap=document.getElementById('loadMoreWrap');
-      if(wrap) wrap.innerHTML='';
-    } else if(btn){
-      btn.innerHTML='<i class="fa-solid fa-arrow-up"></i> Load earlier messages';
+    let d;
+    if(selectedFile){
+      const fd = new FormData();
+      fd.append('text', text); fd.append('file', selectedFile, selectedFile.name);
+      d = await uploadWithProgress(`/chat/${CID}/send_file`, fd, setProgress);
+      setProgress(null);
+    } else {
+      const fd = new FormData(); fd.append('text', text);
+      d = await api(`/chat/${CID}/send`, {method: 'POST', body: fd});
     }
-  }catch(e){ toast('Failed to load older messages','err'); }
-}
-
-{% for m in messages %}
-renderReactions({{ m.msg_id|tojson }}, {{ (m.reactions or {})|tojson }});
-{% endfor %}
-
-const readState={};
-document.querySelectorAll('[data-tick]').forEach(el=>{
-  readState[el.dataset.tick]=el.textContent.trim()==='✓✓';
-});
-
-async function pollMessages(){
-  try{
-    const r=await fetch(`/chat/${CID}/messages?after_ts=${lastTs}`);
-    const d=await r.json();
-    (d.messages||[]).forEach(m=>{
-      if(document.getElementById('msg_'+m.msg_id)){
-        updateExisting(m);
-        return;
-      }
-      appendMessage(m);
-      const wrap=document.getElementById('msg_'+m.msg_id);
-      if(wrap && m.from==='user'){ wrap.classList.add('new-msg-flash'); try{ notifyNew(); }catch(e){} }
-    });
-    (d.updates||[]).forEach(m=>updateExisting(m));
-  }catch(e){}
-}
-function updateExisting(m){
-  const wrap=document.getElementById('msg_'+m.msg_id);
-  if(!wrap) return;
-  if(m.from==='admin'){
-    const el=wrap.querySelector(`[data-tick="${m.msg_id}"]`);
-    if(el && m.read && !readState[m.msg_id]){
-      el.textContent='✓✓'; el.style.color='var(--accent3)'; readState[m.msg_id]=true;
-    }
-  }
-  if(m.deleted){
-    const bubble=wrap.querySelector('.bubble');
-    if(bubble && !bubble.classList.contains('deleted')){
-      bubble.className='bubble '+(m.from==='admin'?'admin':'user')+' deleted';
-      bubble.innerHTML='<i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted';
-      const a=wrap.querySelector('.bubble-actions');
-      if(a) a.remove();
-    }
-  }
-  renderReactions(m.msg_id, m.reactions||{});
-}
-function notifyNew(){
-  if(document.hidden) return;
-  try{
-    const ctx=new (window.AudioContext||window.webkitAudioContext)();
-    const o=ctx.createOscillator(); const g=ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.frequency.value=880; o.type='sine';
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime+0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.28);
-    o.start(); o.stop(ctx.currentTime+0.3);
-  }catch(e){}
-}
-setInterval(pollMessages, 3500);
-
-async function reactTo(mid, emoji, action){
-  try{
-    const fd=new FormData();
-    fd.append('emoji', emoji);
-    fd.append('action', action||'add');
-    const r=await fetch(`/chat/${CID}/message/${mid}/react`,{method:'POST',body:fd});
-    const d=await r.json();
     if(d.ok){
-      renderReactions(mid, d.reactions||{});
-      const row=document.querySelector(`[data-react-row="${mid}"]`);
-      if(row){
-        const chip=row.querySelector('.reaction-chip');
-        if(chip){ chip.classList.add('pulse'); setTimeout(()=>chip.classList.remove('pulse'),420); }
-      }
-    } else toast(d.error||'Failed','err');
-  }catch(e){ toast('Error: '+e,'err'); }
-}
-
-function editMsg(mid, text){
-  document.getElementById('editMid').value=mid;
-  document.getElementById('editText').value=text;
-  openModal('editModal');
-}
-async function submitEdit(){
-  const mid=document.getElementById('editMid').value;
-  const text=document.getElementById('editText').value.trim();
-  if(!text) return;
-  const fd=new FormData(); fd.append('text', text);
-  const r=await fetch(`/chat/${CID}/message/${mid}/edit`,{method:'POST',body:fd});
-  const d=await r.json();
-  if(d.ok){
-    closeModal('editModal');
-    const wrap=document.getElementById('msg_'+mid);
-    const bubble=wrap.querySelector('.bubble');
-    const t=bubble.querySelector('.bubble-text');
-    if(t) t.textContent=text;
-    else bubble.insertAdjacentHTML('beforeend',`<span class="bubble-text">${esc(text)}</span>`);
-    toast('Message edited','ok');
-  } else toast(d.error||'Failed','err');
-}
-async function deleteMsg(mid){
-  if(!confirm('Delete this message? It will remain in the database but show as deleted.')) return;
-  const r=await fetch(`/chat/${CID}/message/${mid}/delete`,{method:'POST'});
-  const d=await r.json();
-  if(d.ok){
-    const wrap=document.getElementById('msg_'+mid);
-    const isAdmin=wrap.classList.contains('admin');
-    const bubble=wrap.querySelector('.bubble');
-    bubble.className='bubble '+(isAdmin?'admin':'user')+' deleted';
-    bubble.innerHTML='<i class="fa-solid fa-ban" style="margin-right:5px"></i> This message was deleted';
-    const a=wrap.querySelector('.bubble-actions'); if(a) a.remove();
-    toast('Message deleted','ok');
-  } else toast(d.error||'Failed','err');
-}
-async function setBlock(blocked){
-  try{
-    const r=await fetch(`/chat/${CID}/${blocked?'block':'unblock'}`,{method:'POST'});
-    const d=await r.json();
-    if(d.ok){ toast(blocked?'User blocked':'User unblocked','ok'); setTimeout(()=>location.reload(),500); }
-    else toast(d.error||'Failed','err');
-  }catch(e){ toast('Network error: '+e,'err'); }
-}
-
-document.addEventListener('mouseover', e=>{
-  const wrap=e.target.closest('.bubble-wrap');
-  if(!wrap) return;
-  const a=wrap.querySelector('.bubble-actions');
-  if(a) a.style.display='flex';
-});
-document.addEventListener('mouseout', e=>{
-  const wrap=e.target.closest('.bubble-wrap');
-  if(!wrap) return;
-  const a=wrap.querySelector('.bubble-actions');
-  if(a) a.style.display='none';
-});
-
-window.__pageInit=function(){};
+      if(selectedFile) clearFile();
+      input.value = ''; autoResize(input);
+      appendMessage(d.message, false);
+      toast('Sent', 'ok');
+      if(d.warning) toast(d.warning, 'info', 6000);
+    } else toast(d.error || 'Failed', 'err', 5000);
+  }catch(e){ setProgress(null); toast('Error: ' + (e.message || e), 'err'); }
+  status.textContent = '';
+  isSending = false; $('sendBtn').disabled = false;
+  input.focus();
+};
+})();
 </script>
 {% endblock %}
