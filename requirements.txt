@@ -1,5 +1,5 @@
-Flask==3.0.3
-gunicorn==22.0.0
-pyTelegramBotAPI==4.22.1
-requests==2.32.3
-python-dotenv==1.0.1
+Flask
+gunicorn
+pyTelegramBotAPI
+requests
+python-dotenv
