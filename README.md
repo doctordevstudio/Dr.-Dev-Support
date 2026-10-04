@@ -1,174 +1,202 @@
-# Support Bot — Standalone Telegram Customer Support System
+# 🎧 Dr. Dev Support — Telegram Customer Support Bot + WhatsApp-Style Admin Panel (Flask + Firebase)
 
-A self-contained customer-support system, separate from your shop project:
-users message your Telegram bot, admin replies from a WhatsApp-style web
-panel (login-protected), files can be exchanged both ways, everything is
-logged to Firebase Realtime Database, and it's built to run on Render's
-free tier kept alive by UptimeRobot.
+> **Open-source Telegram customer support system in Python.** Your customers message a Telegram bot, you answer from a
+> beautiful **WhatsApp-style web admin panel** (or straight from Telegram with `/send`). Photos, videos and files, reactions,
+> broadcasts with history, anti-spam, themes, and a full audit log — stored in **Firebase Realtime Database** and deployable
+> for **free on Render**.
 
-## What's included
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask)
+![Telegram Bot](https://img.shields.io/badge/Telegram-Bot%20API-26A5E4?logo=telegram&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-Realtime%20Database-FFCA28?logo=firebase&logoColor=black)
+![Render](https://img.shields.io/badge/Deploy-Render%20Free%20Tier-46E3B7?logo=render&logoColor=black)
 
-| File | Purpose |
+**Keywords:** telegram support bot · telegram customer service bot · telegram helpdesk · telegram live chat · flask admin panel ·
+firebase realtime database python · telegram broadcast bot · pyTelegramBotAPI example · WhatsApp-style chat UI · free bot hosting on Render
+
+---
+
+## 📑 Table of contents
+- [Why this project?](#-why-this-project)
+- [Features](#-features)
+- [Telegram admin commands](#-telegram-admin-commands)
+- [Quick start (5 minutes)](#-quick-start-5-minutes)
+- [Environment variables](#-environment-variables)
+- [Firebase setup](#-firebase-setup)
+- [Deploy for free on Render](#-deploy-for-free-on-render)
+- [Admin panel guide](#-admin-panel-guide)
+- [How it works](#-how-it-works)
+- [Security notes](#-security-notes)
+- [FAQ](#-faq)
+- [Author & custom projects](#-author--custom-projects)
+
+## 💡 Why this project?
+Most Telegram support bots just forward messages to a group and lose the history. **Dr. Dev Support** gives you a real
+**helpdesk**: every customer gets a conversation thread with search, unread counters, read receipts, reactions, edit/delete,
+file sharing and a block button — all in a fast mobile-friendly web panel, backed by a free database. It runs on one
+small Python process, so the free tier of Render is enough.
+
+## ✨ Features
+
+### 💬 Conversations (WhatsApp-style)
+- Chat bubbles with **Today / Yesterday / weekday / full-date** separators, ✓ / ✓✓ read ticks and an **edited** tag
+- Deleted messages show a clean **❌ Deleted** marker (the record is kept in Firebase — see *Soft delete*)
+- **Search inside a chat** like Telegram: result counter (`2 of 9`), ↑ goes to older matches, ↓ to newer ones, matches highlighted
+- **Smart user search**: name, `@username`, chat ID *and* last message — accent-insensitive, multi-word, highlighted — plus *All / Unread / Blocked* filters
+- **Reactions both ways** — admin reactions appear on the user's Telegram message, user reactions appear in the panel and ping you
+- Photos, videos and documents both directions (lazy-loaded, streamed, up to 49 MB)
+- Edit your replies (also edits the message in Telegram), see when a user edits theirs
+- Block / unblock users, profile card with avatar, pagination for huge chats
+
+### 📢 Broadcast manager
+- Send **text, HTML, image, video or file** to every user — as a background job (no frozen page)
+- **History of every broadcast** with ✅ successful / ❌ failed counts, delivery rate, failure reasons per user
+- **Broadcast again**, **Edit** (updates the message in every user's chat) and **Delete** (removes it from every chat)
+- Users who blocked the bot are detected and skipped next time; Telegram flood-limits (429) are respected
+- Works from the panel **and** from Telegram with `/broadcast` — both are tracked in the same history
+
+### 🛠 Admin power from Telegram
+`/send`, `/broadcast`, `/help` — answer customers and message everyone without opening the website
+(see [commands](#-telegram-admin-commands)). Customers' **photos / videos / files are forwarded to your admin chat** too.
+
+### ⚙️ Settings page (no redeploy needed)
+Website name, browser title, tagline, logo emoji · **dark / light / auto theme** + accent colour presets · animations on/off ·
+change **admin username & password** (stored hashed; other sessions are signed out) · auto-reply text & cool-down ·
+notification toggles · anti-spam thresholds · pagination · broadcast speed.
+
+### 🛡 Safety
+Anti-spam (rate limit, duplicate detection, mute, auto-block) · login brute-force lock · CSRF-safe cookies ·
+ID validation on every route · **nothing is ever hard-deleted from Firebase** · full **activity log**.
+
+### 🎨 Polish
+Animated gradient background, staggered sidebar, ripple buttons, animated counters, springy modals, skeleton loading,
+Telegram-HTML live preview, fully responsive (great on phones), respects *reduced motion*.
+
+## 🤖 Telegram admin commands
+Only the chat IDs in `ADMIN_CHAT_ID` can use these. Everyone else is a normal customer.
+
+| Command | What it does |
 |---|---|
-| `app.py` | Flask admin panel (login, chat list, chat view, uploads, logs) |
-| `telegram_bot.py` | The bot: receives user messages, notifies admin, soft-delete, block/unblock |
-| `antispam.py` | In-memory flood/duplicate-message protection |
-| `firebase_helper.py` | Firebase REST client + append-only activity logger |
-| `config.py` | All settings, read from environment variables only |
-| `templates/` | `login.html`, `chats.html` (user list), `chat.html` (WhatsApp-style chat), `logs.html` |
+| `/help` | Shows how to use the bot |
+| `/send <chat_id> <message>` | Sends the message to that user |
+| `/send <chat_id>` | Then send an **image / video / file** (caption optional) and it is delivered to that user |
+| `/broadcast <text>` | Sends the text to **all** users (shows a preview with **Send / Cancel** first) |
+| `/broadcast` | Then send an **image / video / file** (caption optional) to broadcast it |
+| `/cancel` | Aborts the current action |
 
-## How it behaves (per your spec)
+The `chat_id` is in every new-message notification (tap to copy). HTML such as `<b>bold</b>` works in broadcasts.
+When a broadcast finishes the bot tells you **how many were successful and how many failed**, and it appears in the panel's history.
+The Send/Cancel confirmation can be switched off in *Settings → Bot behaviour*.
 
-- **Nothing is ever hard-deleted.** Clicking delete in the admin panel sets
-  `deleted: true` on that message in Firebase; the chat then shows a
-  "🚫 This message was deleted" placeholder (WhatsApp Business style), but
-  the row and its original content stay in the database permanently.
-  **Limitation that's on Telegram's side, not this code:** Telegram's Bot
-  API has no event for "a user deleted their own message" in a private
-  chat — there's no such webhook for anyone building bots. What's
-  implemented is the part that's actually possible: your own deletions
-  from the panel are soft, and the bot's own sent messages are
-  best-effort removed from the Telegram side too.
-- **Admin panel:** username/password login (from env vars, brute-force
-  locked after `LOGIN_MAX_ATTEMPTS` failures), a WhatsApp-style user list,
-  click a user to see the full thread.
-- **Files:** users can send photos/videos/documents; the admin can too.
-  Every download link in the panel re-resolves a fresh Telegram file URL
-  server-side (instead of trusting a cached link that can go stale) and
-  forces a real download.
-- **Firebase logging:** every message in/out, login, login failure,
-  block/unblock, delete, and spam event is appended to `/logs` — view it
-  at `/logs` in the panel.
-- **Admin notifications:** every new user message pings all chat IDs in
-  `ADMIN_CHAT_ID` with a preview and a link into the panel.
-- **Auto-reply to the user:** by default, the first message in a
-  conversation (and again after `AUTO_REPLY_COOLDOWN_MINUTES`, default 30,
-  of quiet) gets an automatic "✅ Message received! Admin will answer you
-  soon." reply — for text *and* for photos/videos/files. This is a
-  WhatsApp Business-style away-message, not a reply to every single
-  message (that would get spammy fast). Customize the text with
-  `AUTO_REPLY`, or set `AUTO_REPLY=""` to disable it entirely, or
-  `AUTO_REPLY_COOLDOWN_MINUTES=0` to send it after every message instead.
-- **Anti-spam:** per-chat rate limiting (max messages per time window),
-  minimum gap between messages, repeated-identical-message detection,
-  temporary mute, and auto-block after repeated strikes — all tunable via
-  env vars, see `.env.example`.
-
-## 1. Get your credentials
-
-- **Bot token:** talk to [@BotFather](https://t.me/BotFather) on Telegram → `/newbot`.
-- **Your admin chat ID:** message [@userinfobot](https://t.me/userinfobot) — it replies with your numeric ID.
-- **Firebase Realtime Database:**
-  1. [console.firebase.google.com](https://console.firebase.google.com) → Create project → Build → Realtime Database → Create Database.
-  2. Copy the database URL (`https://xxxx-default-rtdb.firebaseio.com`) → `FIREBASE_URL`.
-  3. Project settings (⚙️) → Service accounts → **Database secrets** → copy the secret → `FIREBASE_SECRET`.
-     (This is Firebase's legacy secret, simplest for a small REST-only bot like this — no service-account JSON needed.)
-  4. Rules can stay locked down (`{"rules": {".read": false, ".write": false}}`) since every request from this app is authenticated with `?auth=<secret>`, which bypasses those rules.
-
-## 2. Run locally (optional, to test before deploying)
-
+## 🚀 Quick start (5 minutes)
 ```bash
-git clone <your-repo-url> support-bot
-cd support-bot
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+git clone https://github.com/YOUR_USERNAME/Dr.-Dev-Support.git
+cd Dr.-Dev-Support
+python3 -m venv venv && source venv/bin/activate     # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-cp .env.example .env
-# edit .env and fill in BOT_TOKEN, ADMIN_CHAT_ID, FIREBASE_URL, FIREBASE_SECRET,
-# ADMIN_USERNAME, ADMIN_PASSWORD, SECRET_KEY
-
-# load .env and run (add `from dotenv import load_dotenv; load_dotenv()`
-# at the very top of app.py first, or just export the vars manually)
-export $(grep -v '^#' .env | xargs)   # macOS/Linux
-python3 app.py
+cp .env.example .env                                  # fill in your values
+export $(grep -v '^#' .env | xargs)                   # or set them in your IDE / hosting dashboard
+python app.py                                         # http://localhost:5000
 ```
+1. Create a bot with [@BotFather](https://t.me/BotFather) → copy the token into `BOT_TOKEN`.
+2. Get your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot) → `ADMIN_CHAT_ID`.
+3. Set up Firebase (below) → `FIREBASE_URL` + `FIREBASE_SECRET`.
+4. Open the panel, log in, then **change the default password in Settings → Security**.
 
-Visit `http://localhost:5000`, log in, and message your bot on Telegram to
-see it appear in the panel.
+## 🔧 Environment variables
+| Variable | Required | Default | Description |
+|---|:--:|---|---|
+| `BOT_TOKEN` | ✅ | — | Telegram bot token from @BotFather |
+| `ADMIN_CHAT_ID` | ✅ | — | Your Telegram user ID (several IDs: `123,456`) |
+| `FIREBASE_URL` | ✅ | — | `https://<project>-default-rtdb.firebaseio.com` |
+| `FIREBASE_SECRET` | ✅ | — | Database secret (Project settings → Service accounts → Database secrets) |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | ✅ | `admin` / `admin123` | First-run login — change it in **Settings** |
+| `SECRET_KEY` | ✅ | random | Flask session key (Render can generate it) |
+| `PANEL_URL` | ➖ | — | Public URL of the panel → adds an *Open in Admin Panel* button to notifications |
+| `PANEL_NAME` | ➖ | `Support Panel` | Initial site name (editable in Settings) |
+| `AUTO_REPLY`, `AUTO_REPLY_COOLDOWN_MINUTES` | ➖ | see `config.py` | Away-message; also editable in Settings |
+| `MAX_UPLOAD_MB` | ➖ | `49` | Largest file you can send from the panel |
+| `BROADCAST_DELAY` | ➖ | `0.05` | Seconds between users (≈20 msgs/s) |
 
-## 3. Deploy to Render (free web service)
+Anything you save on the **Settings** page is stored in Firebase and overrides the environment default.
 
-**Option A — one-click via Blueprint (`render.yaml` is already included):**
+## 🔥 Firebase setup
+1. [console.firebase.google.com](https://console.firebase.google.com) → *Create project* → *Build → Realtime Database → Create database*.
+2. Copy the database URL → `FIREBASE_URL`.
+3. ⚙️ Project settings → *Service accounts* → *Database secrets* → copy → `FIREBASE_SECRET`.
+4. **Rules** tab → paste the content of [`database.rules.json`](database.rules.json) and *Publish*. It keeps the database private
+   (only your server, using the secret, can read/write) and adds the indexes that make long chats and the log load instantly.
 
-```bash
-git init
-git add .
-git commit -m "Initial commit: standalone support bot"
-git branch -M main
-git remote add origin <your-github-repo-url>
-git push -u origin main
+> Without the indexes everything still works — the app falls back to slower full reads and prints a hint in the logs.
+
+## ☁️ Deploy for free on Render
+1. Push this repo to GitHub.
+2. Render → **New → Blueprint** → select the repo (`render.yaml` is included) — or *New → Web Service* with  
+   build `pip install -r requirements.txt` and start `gunicorn app:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT`.
+3. Fill in the environment variables, deploy, then set `PANEL_URL` to your `https://<name>.onrender.com` URL.
+4. Keep it awake with a free [UptimeRobot](https://uptimerobot.com) monitor on `https://<name>.onrender.com/ping` (every 5 min).
+
+> ⚠️ Keep **one worker** (`--workers 1`): the bot polls Telegram from a background thread and a few small caches live in memory.
+
+## 🖥 Admin panel guide
+| Page | What you do there |
+|---|---|
+| **Conversations** | Search users, filter unread/blocked, open a chat |
+| **Chat** | Reply, attach files, react, edit, delete, search messages, block |
+| **Broadcast** | Compose, attach media, watch progress, re-send / edit / delete old broadcasts |
+| **Welcome Message** | Edit the `/start` greeting (Text or HTML, live preview, validated before saving) |
+| **Activity Log** | Every message, login, block, broadcast and settings change |
+| **Settings** | Branding, theme, password, bot behaviour, anti-spam, pagination |
+| **Contact Developer** | Who built this and how to hire them |
+
+## 🧠 How it works
 ```
+Telegram user ─▶ Bot (pyTelegramBotAPI, polling thread) ─▶ Firebase RTDB ◀─ Flask admin panel (REST)
+                      │                                         ▲
+                      └─▶ your admin chat (notifications, media, /send, /broadcast)
+```
+- `support/<chat_id>/messages` — every message · `support/<chat_id>/meta` — profile, unread, blocked
+- `chat_index/<chat_id>` — tiny mirror of the meta used for the fast chat list and broadcast recipients
+- `broadcasts/<id>` · `broadcast_deliveries/<id>/<chat_id>` · `broadcast_failures/<id>/<chat_id>` — broadcast history
+- `settings/site`, `settings/auth`, `settings/welcome` — runtime settings · `logs` — audit trail
 
-Then in Render:
-1. New → **Blueprint** → connect the repo → Render reads `render.yaml` automatically.
-2. It creates one free web service. Fill in the env vars it prompts for
-   (`BOT_TOKEN`, `ADMIN_CHAT_ID`, `FIREBASE_URL`, `FIREBASE_SECRET`,
-   `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `PANEL_URL`) in the Render dashboard
-   — `SECRET_KEY` is auto-generated for you.
-3. Deploy. Once live, copy the service URL (`https://xxxx.onrender.com`)
-   into the `PANEL_URL` env var and redeploy so admin notifications get a
-   working "Open in Admin Panel" button.
+**Soft delete:** deleting a message or a broadcast in the panel removes it from Telegram (when Telegram allows it) but only
+sets `deleted: true` in Firebase. Nothing is ever removed from your database. Edits keep the previous text in `edit_history`.
 
-**Option B — manual, no Blueprint:**
+**Telegram limits worth knowing:** bots can only react with Telegram's built-in reaction emoji (the panel offers exactly those),
+and Telegram may refuse to delete very old messages — the panel tells you when that happens.
 
-1. New → **Web Service** → connect your repo.
-2. Runtime: **Python 3**. Build command:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Start command:
-   ```
-   gunicorn app:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
-   ```
-   **`--workers 1` is not optional.** The bot's `getUpdates` long-polling
-   runs in a background thread inside the web process. If Render (or you)
-   spins up more than one worker/process, you get two pollers fighting
-   over the same bot token and Telegram returns
-   `409 Conflict: terminated by other getUpdates request`, causing
-   messages to randomly stop arriving. One worker + threads for concurrent
-   HTTP requests is the correct setup for this architecture.
-4. Instance type: **Free**.
-5. Add the environment variables listed in `.env.example` under
-   Environment → Add Environment Variable (do this for every one of
-   `BOT_TOKEN`, `ADMIN_CHAT_ID`, `FIREBASE_URL`, `FIREBASE_SECRET`,
-   `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SECRET_KEY`, `PANEL_URL`).
-6. Deploy. Health check path (if asked): `/health`.
+## 🔐 Security notes
+- Change the default password on first login (the panel nags you until you do).
+- Use HTTPS (Render does by default) and a long random `SECRET_KEY`.
+- Keep `FIREBASE_SECRET` and `BOT_TOKEN` in environment variables only — never commit `.env`.
 
-## 4. Keep it awake with UptimeRobot
+## ❓ FAQ
+**How do I build a Telegram customer support bot with Python?** Clone this repo, add your bot token and Firebase keys, deploy to Render — the bot, database and admin panel are all included.
 
-Render's free web services sleep after ~15 minutes without incoming HTTP
-traffic. A ping keeps the process (and the bot's polling thread inside it)
-alive.
+**Can I reply to customers from my phone?** Yes — the panel is fully responsive, and `/send <chat_id> message` works directly in Telegram.
 
-1. [uptimerobot.com](https://uptimerobot.com) → sign up (free) → **Add New Monitor**.
-2. Monitor Type: **HTTP(s)**.
-3. URL: `https://<your-service>.onrender.com/ping`
-4. Monitoring interval: **5 minutes**.
-5. Save.
+**Does it work on Render's free plan?** Yes. Use one worker and an UptimeRobot ping on `/ping` so the service doesn't sleep.
 
-That's it — as long as UptimeRobot keeps hitting `/ping` every 5 minutes,
-the service (and your bot) stays up 24/7 on the free tier.
+**Can I broadcast an image or video to all users?** Yes — in the panel or with `/broadcast` in Telegram. The file is uploaded once and reused for every user.
 
-## 5. First login
+**Can I undo a broadcast?** You can **delete** it (removed from users' chats) or **edit** it. The record stays in Firebase.
 
-Go to `https://<your-service>.onrender.com/login` and sign in with the
-`ADMIN_USERNAME` / `ADMIN_PASSWORD` you set. Message your bot on Telegram
-from a second account/phone — it should show up in the chat list within
-a few seconds, and you'll get an admin notification.
+**Is anything stored forever?** Yes — by design nothing is hard-deleted, so you always have a complete audit trail.
 
-## Notes & honest limitations
+## 👨‍💻 Author & custom projects
+Made by **Dr. Dev || Dr. Hamza** (**@drdevhacks**) — I build Python, Android (Java), PHP, MySQL and JavaScript projects and
+create coding & ethical-hacking content on YouTube, Instagram and Facebook.
 
-- **Free Render + long polling** means a brief gap (a few seconds, not
-  minutes) after a cold start before the bot picks up the very first
-  message post-wake — normal for any polling bot on a free tier; the
-  UptimeRobot ping minimizes how often this happens.
-- **File size:** Telegram bots can download files up to ~20MB via the API
-  used for the panel's download links; sending documents as the bot
-  supports up to ~50MB. `MAX_UPLOAD_MB` (default 45) keeps you inside
-  Telegram's own ceiling — raising it much further will just fail on
-  Telegram's side, not this app's.
-- **Message-deletion detection**, as noted above, cannot reflect a user
-  deleting their own message on their device — no Telegram Bot API event
-  exists for that in private chats. Everything else (soft-delete from the
-  panel, permanent audit trail) is implemented.
+**Need a custom project, or want an existing project modified?** Message me on Telegram 👉 **[t.me/doctordevsupport](https://t.me/doctordevsupport)**
+
+⭐ If this project saved you time, please **star the repo** and share it — it really helps!
+
+<!--
+Suggested GitHub "About" description (≈160 chars):
+Telegram customer support bot with a WhatsApp-style Flask admin panel, Firebase storage, broadcasts, reactions, anti-spam. Free Render deploy.
+
+Suggested GitHub topics:
+telegram-bot, customer-support, helpdesk, flask, firebase, firebase-realtime-database, python, admin-panel, broadcast, pytelegrambotapi,
+whatsapp-style, live-chat, support-bot, render, open-source
+-->
