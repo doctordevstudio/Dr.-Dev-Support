@@ -24,18 +24,55 @@ IST = timezone(timedelta(hours=5, minutes=30))
 BOT_TOKEN = _clean(os.environ.get("BOT_TOKEN", ""))
 
 
-def ADMIN_CHAT_IDS() -> list:
-    raw = _clean(os.environ.get("ADMIN_CHAT_ID", ""))
+def _ids(name: str) -> list:
+    raw = _clean(os.environ.get(name, ""))
     return [x.strip() for x in raw.split(",") if x.strip()]
+
+
+def SUPER_ADMIN_CHAT_IDS() -> list:
+    """Telegram chat id(s) of the SUPER admin (env: SUPER_ADMIN_CHAT_ID)."""
+    return _ids("SUPER_ADMIN_CHAT_ID")
+
+
+def ADMIN_ONLY_CHAT_IDS() -> list:
+    """Telegram chat id(s) of the normal ADMIN (env: ADMIN_CHAT_ID)."""
+    sup = set(SUPER_ADMIN_CHAT_IDS())
+    return [x for x in _ids("ADMIN_CHAT_ID") if x not in sup]
+
+
+def ADMIN_CHAT_IDS() -> list:
+    """Every chat that gets notifications and may use the bot's admin commands."""
+    out = []
+    for x in SUPER_ADMIN_CHAT_IDS() + ADMIN_ONLY_CHAT_IDS():
+        if x not in out:
+            out.append(x)
+    return out
+
+
+def role_of_chat(chat_or_user_id) -> str:
+    """'super' | 'admin' | '' (not an admin). Super wins if an id is in both lists."""
+    cid = str(chat_or_user_id) if chat_or_user_id is not None else ""
+    if not cid:
+        return ""
+    if cid in SUPER_ADMIN_CHAT_IDS():
+        return "super"
+    if cid in ADMIN_ONLY_CHAT_IDS():
+        return "admin"
+    return ""
 
 
 # ── Firebase ──────────────────────────────────────────────────────────────────
 FIREBASE_URL = _clean(os.environ.get("FIREBASE_URL", ""))
 FIREBASE_SECRET = _clean(os.environ.get("FIREBASE_SECRET", ""))
 
-# ── Admin panel auth ──────────────────────────────────────────────────────────
-ADMIN_USERNAME = _clean(os.environ.get("ADMIN_USERNAME", "admin"))
-ADMIN_PASSWORD = _clean(os.environ.get("ADMIN_PASSWORD", "admin123"))
+# ── Admin panel auth (ONLY from environment variables) ───────────────────────
+# Two accounts: the SUPER admin sees everything, the ADMIN gets a limited view.
+# There are deliberately no built-in defaults — a role without both a username
+# and a password set here simply cannot log in.
+SUPER_ADMIN_USERNAME = _clean(os.environ.get("SUPER_ADMIN_USERNAME", ""))
+SUPER_ADMIN_PASSWORD = _clean(os.environ.get("SUPER_ADMIN_PASSWORD", ""))
+ADMIN_USERNAME = _clean(os.environ.get("ADMIN_USERNAME", ""))
+ADMIN_PASSWORD = _clean(os.environ.get("ADMIN_PASSWORD", ""))
 
 # ── Flask ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = _clean(os.environ.get("SECRET_KEY", "")) or os.urandom(24).hex()
