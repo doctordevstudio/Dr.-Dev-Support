@@ -1,5 +1,10 @@
 """
 app.py — Support Bot Admin Panel (Flask)
+
+Two panel accounts, both configured ONLY through environment variables:
+  * super admin  (SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD) — full access
+  * admin        (ADMIN_USERNAME / ADMIN_PASSWORD)             — no Settings, own log only,
+                   and "deleting" a message / broadcast only hides it from the admin's view
 """
 import math
 import mimetypes
@@ -81,12 +86,22 @@ def _is_xhr() -> bool:
     )
 
 
+ROLE_LABEL = {"super": "Super Admin", "admin": "Admin"}
+
+
+def current_role() -> str:
+    """'super' | 'admin' | '' — only for a session whose env credentials are still the same."""
+    role = session.get("role")
+    if session.get("admin") and role in ROLE_LABEL and session.get("pv") == settings.session_version(role):
+        return role
+    return ""
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*a, **kw):
-        ok = session.get("admin") and session.get("pv", 0) == settings.auth_version()
-        if not ok:
-            session.clear()                      # password changed elsewhere -> sign out
+        if not current_role():
+            session.clear()                      # credentials changed / expired -> sign out
             if _is_xhr():
                 return jsonify({"error": "Session expired — please log in again"}), 401
             return redirect(url_for("login"))
@@ -94,16 +109,44 @@ def login_required(f):
     return decorated
 
 
+def super_required(f):
+    """Super admin only (Settings, test notification, …)."""
+    @wraps(f)
+    @login_required
+    def decorated(*a, **kw):
+        if current_role() != "super":
+            if _is_xhr():
+                return jsonify({"error": "Only the super admin can do this"}), 403
+            flash("Only the super admin can open this page.", "danger")
+            return redirect(url_for("chats"))
+        return f(*a, **kw)
+    return decorated
+
+
+@app.before_request
+def _bind_actor():
+    """Everything logged / stored during this request is attributed to the logged-in role."""
+    fb.set_actor(current_role() or None)
+
+
+@app.teardown_request
+def _unbind_actor(_exc):
+    fb.set_actor(None)
+
+
 @app.context_processor
 def inject_globals():
     s = settings.load()
+    role = current_role()
     return {
         "S": s,
         "panel_name": s["panel_name"],
         "site_title": s["site_title"] or s["panel_name"],
         "theme_css": settings.css_vars(s),
         "max_upload_mb": config.MAX_UPLOAD_MB,
-        "using_default_pw": settings.using_default_password(),
+        "role": role,
+        "is_super": role == "super",
+        "role_label": ROLE_LABEL.get(role, ""),
     }
 
 
@@ -134,32 +177,46 @@ def on_error(e):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+        # The IP is only used in memory for brute-force protection — it is never logged.
+        ip = (request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown").split(",")[0].strip()
         locked_for = _login_locked(ip)
         if locked_for:
             flash(f"Too many failed attempts. Try again in {locked_for}s.", "danger")
             return render_template("login.html")
 
+        if not settings.login_configured():
+            flash("Login is not configured — set SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD "
+                  "(and ADMIN_USERNAME / ADMIN_PASSWORD) in the environment variables.", "danger")
+            return render_template("login.html")
+
         entered_user = request.form.get("username", "").strip()
         entered_pass = request.form.get("password", "").strip()
 
-        if settings.check_credentials(entered_user, entered_pass):
+        role = settings.authenticate(entered_user, entered_pass)
+        if role:
             session.clear()
             session["admin"] = True
-            session["pv"] = settings.auth_version()
+            session["role"] = role
+            session["pv"] = settings.session_version(role)
             session.permanent = True
             _clear_failed_login(ip)
-            fb.log_event("admin_login", ip=ip)
+            with fb.acting_as(role):                  # lands in that role's own log only
+                fb.log_event("admin_login")
             return redirect(url_for("chats"))
 
         _record_failed_login(ip)
-        fb.log_event("admin_login_failed", ip=ip, username=entered_user)
+        # failed attempts are security information -> super admin log only
+        fb.log_event("admin_login_failed", scope="super", actor="system", username=entered_user)
         flash("Invalid credentials", "danger")
     return render_template("login.html")
 
 
 @app.route("/logout")
 def logout():
+    role = current_role()
+    if role:
+        with fb.acting_as(role):
+            fb.log_event("admin_logout")
     session.clear()
     return redirect(url_for("login"))
 
@@ -172,13 +229,29 @@ def _msg_sort_key(m):
     return (m.get("ts", 0), int(num.group(1)) if num else 0)
 
 
-def _prep(m: dict) -> dict:
-    """Public shape of a message: reactions normalised to {"admin":[], "user":[]}."""
+def _prep(m: dict, role: str = "super") -> dict:
+    """Public shape of a message: reactions normalised to {"admin":[], "user":[]}.
+
+    For the ADMIN role a message the admin "deleted" is shown as deleted and its content is
+    removed from the response. The super admin still gets the full message, flagged with
+    `hidden_admin` so the panel can show that the admin removed it from their view."""
     out = dict(m)
     out["reactions"] = tg.reaction_view(m.get("reactions"))
     out.pop("edit_history", None)
     out.pop("raw_text", None)
+    if role == "admin":
+        if m.get("hidden_admin"):
+            out["deleted"] = True
+            for k in ("text", "caption", "file_id", "file_name", "reply_to"):
+                out.pop(k, None)
+            out["reactions"] = {"admin": [], "user": []}
+        out.pop("hidden_admin", None)
+        out.pop("hidden_admin_at", None)
     return out
+
+
+def _prep_list(items, role):
+    return [_prep(m, role) for m in items]
 
 
 def _ist_dt(ts):
@@ -284,14 +357,14 @@ def api_chats():
 
 # ── Debug: send a test admin notification ────────────────────────────────────
 @app.route("/debug/notify")
-@login_required
+@super_required
 def debug_notify():
-    """Hit this once while logged in to verify admin notifications work."""
+    """Super admin: send a test notification to BOTH admin chats."""
     ids = config.ADMIN_CHAT_IDS()
     if not ids:
         return jsonify({
             "ok": False,
-            "error": "ADMIN_CHAT_ID is empty. Set it in Render → Environment, e.g. 123456789 or '123,456'."
+            "error": "SUPER_ADMIN_CHAT_ID and ADMIN_CHAT_ID are empty. Set them in Render → Environment."
         })
     if not tg.bot:
         return jsonify({"ok": False, "error": "Bot is not initialized — BOT_TOKEN missing or invalid."})
@@ -353,6 +426,7 @@ def chat_view(cid):
     per = config.MESSAGES_PER_PAGE
     messages, has_more = _recent(cid, per)
     total = len(fb.shallow(f"support/{cid}/messages"))
+    role = current_role()
 
     _mark_read(cid, messages)
     if meta.get("unread"):
@@ -360,7 +434,9 @@ def chat_view(cid):
 
     payload = {
         "cid": cid,
-        "messages": [_prep(m) for m in messages],
+        "role": role,
+        "user_name": meta.get("user_name") or cid,
+        "messages": _prep_list(messages, role),
         "has_more": has_more,
         "total": total,
         "reactions": tg.REACTIONS,
@@ -380,6 +456,7 @@ def chat_messages_json(cid):
     after_ts = request.args.get("after_ts", type=int)
     around = request.args.get("around", "")
     limit = min(100, request.args.get("limit", default=config.MESSAGES_PER_PAGE, type=int) or 30)
+    role = current_role()
 
     if around:
         # jump to a (search-)result that is not loaded yet: 25 messages of context
@@ -390,11 +467,11 @@ def chat_messages_json(cid):
             return jsonify({"error": "Message not found"}), 404
         start = max(0, idx - 25)
         chunk = allm[start:start + 400]
-        return jsonify({"messages": [_prep(m) for m in chunk], "has_more": start > 0})
+        return jsonify({"messages": _prep_list(chunk, role), "has_more": start > 0})
 
     if before_ts is not None:
         page, has_more = _older(cid, before_ts, limit)
-        return jsonify({"messages": [_prep(m) for m in page], "has_more": has_more})
+        return jsonify({"messages": _prep_list(page, role), "has_more": has_more})
 
     if after_ts is not None:
         # one window of the latest messages: new ones + fresh state (reactions,
@@ -413,11 +490,11 @@ def chat_messages_json(cid):
             changed = _mark_read(cid, new)
             if changed and fb.get(f"support/{cid}/meta/unread"):
                 fb.patch(f"support/{cid}/meta", {"unread": 0})
-        return jsonify({"messages": [_prep(m) for m in new],
-                        "updates": [_prep(m) for m in old], "has_more": False})
+        return jsonify({"messages": _prep_list(new, role),
+                        "updates": _prep_list(old, role), "has_more": False})
 
     page, has_more = _recent(cid, limit)
-    return jsonify({"messages": [_prep(m) for m in page], "has_more": has_more})
+    return jsonify({"messages": _prep_list(page, role), "has_more": has_more})
 
 
 @app.route("/chat/<cid>/search")
@@ -429,8 +506,11 @@ def chat_search(cid):
     if not q:
         return jsonify({"matches": [], "total": 0})
     out = []
+    is_admin_role = current_role() == "admin"
     for m in _all_messages(cid):
         if m.get("deleted") or not m.get("msg_id"):
+            continue
+        if is_admin_role and m.get("hidden_admin"):
             continue
         hay = _norm(" ".join([m.get("text") or "", m.get("caption") or "", m.get("file_name") or ""]))
         if q in hay:
@@ -449,9 +529,12 @@ def chat_send(cid):
         return jsonify({"error": "Message too long (Telegram allows 4096 characters)"})
     if fb.get(f"support/{cid}/meta/blocked"):
         return jsonify({"error": "User is blocked — unblock first"})
-    res = tg.admin_reply(cid, text)
+    reply_to = request.form.get("reply_to", "").strip()
+    if reply_to:
+        _valid_id(reply_to)
+    res = tg.admin_reply(cid, text, reply_to=reply_to)
     if res.get("message"):
-        res["message"] = _prep(res["message"])
+        res["message"] = _prep(res["message"], current_role())
     return jsonify(res)
 
 
@@ -470,9 +553,12 @@ def chat_send_file(cid):
         return jsonify({"error": f"File exceeds {config.MAX_UPLOAD_MB}MB limit"}), 413
     filename = f.filename or "file"
     mime_type = f.content_type or "application/octet-stream"
-    res = tg.admin_send_file(cid, file_bytes, filename, mime_type, caption)
+    reply_to = request.form.get("reply_to", "").strip()
+    if reply_to:
+        _valid_id(reply_to)
+    res = tg.admin_send_file(cid, file_bytes, filename, mime_type, caption, reply_to=reply_to)
     if res.get("message"):
-        res["message"] = _prep(res["message"])
+        res["message"] = _prep(res["message"], current_role())
     return jsonify(res)
 
 
@@ -573,16 +659,23 @@ def chat_edit(cid, mid):
     new_text = request.form.get("text", "").strip()
     if not new_text:
         return jsonify({"error": "Empty"})
+    if current_role() == "admin":
+        sent_by = fb.get(f"support/{cid}/messages/{mid}/sent_by")
+        if sent_by != "admin":
+            return jsonify({"error": "You can only edit messages you sent yourself"}), 403
     return jsonify(tg.admin_edit_message(cid, mid, new_text))
 
 
 @app.route("/chat/<cid>/message/<mid>/delete", methods=["POST"])
 @login_required
 def chat_delete(cid, mid):
-    """SOFT delete only — the record stays in Firebase with deleted=true."""
+    """Never a hard delete.
+    super admin -> soft delete (deleted=true, record stays in Firebase)
+    admin       -> hidden from the admin's own view only; the super admin and the
+                   database keep the message untouched."""
     _valid_id(cid)
     _valid_id(mid)
-    return jsonify(tg.soft_delete_message(cid, mid, deleted_by="admin"))
+    return jsonify(tg.soft_delete_message(cid, mid))
 
 
 @app.route("/chat/<cid>/message/<mid>/react", methods=["POST"])
@@ -628,7 +721,7 @@ def broadcast_view():
 @app.route("/broadcast/api/list")
 @login_required
 def broadcast_list():
-    return jsonify(bc.snapshot())
+    return jsonify(bc.snapshot(current_role()))
 
 
 def _fmt_arg() -> str:
@@ -672,7 +765,8 @@ def broadcast_edit(bid):
 @app.route("/broadcast/<bid>/delete", methods=["POST"])
 @login_required
 def broadcast_delete(bid):
-    """Removes the messages from users' Telegram chats and SOFT-deletes the record."""
+    """super admin: removes the messages from users' Telegram chats and SOFT-deletes the record.
+    admin: only hides the broadcast from the admin's own list."""
     return jsonify(bc.start_delete(_valid_id(bid)))
 
 
@@ -724,38 +818,44 @@ def welcome_preview():
     fmt = request.form.get("format", "html")
     if fmt not in ("html", "text"):
         fmt = "html"
-    ids = config.ADMIN_CHAT_IDS()
+    role = current_role()
+    ids = config.SUPER_ADMIN_CHAT_IDS() if role == "super" else config.ADMIN_ONLY_CHAT_IDS()
     if not ids:
-        return jsonify({"error": "No ADMIN_CHAT_ID configured"})
+        return jsonify({"error": "No Telegram chat id is configured for your account "
+                                 "(SUPER_ADMIN_CHAT_ID / ADMIN_CHAT_ID)"})
     if not tg.bot:
         return jsonify({"error": "Bot not configured"})
     err = bc.validate(msg, fmt)
     if err:
         return jsonify({"error": err})
-    sent, errors = [], []
-    for admin_id in ids:
+    sent, errors = 0, []
+    for admin_id in ids:                          # the preview goes to YOUR chat only
         try:
             tg.send_formatted(admin_id, msg, fmt)
-            sent.append(admin_id)
+            sent += 1
         except Exception as e:
-            errors.append(f"{admin_id}: {e}")
+            errors.append(str(e))
     return jsonify({"ok": True, "sent_to": sent, "errors": errors})
 
 
-# ── Settings ──────────────────────────────────────────────────────────────────
+# ── Settings (super admin only) ──────────────────────────────────────────────
 @app.route("/settings")
-@login_required
+@super_required
 def settings_view():
     return render_template(
         "settings.html", s=settings.load(force=True), presets=settings.PRESETS,
-        admin_user=settings.admin_username(), bot_ok=bool(tg.bot),
-        admin_ids=config.ADMIN_CHAT_IDS(), panel_url=config.PANEL_URL,
+        bot_ok=bool(tg.bot), panel_url=config.PANEL_URL,
         firebase_ok=bool(config.FIREBASE_URL),
+        super_chat_ok=bool(config.SUPER_ADMIN_CHAT_IDS()),
+        admin_chat_ok=bool(config.ADMIN_ONLY_CHAT_IDS()),
+        super_login_ok=bool(config.SUPER_ADMIN_USERNAME and config.SUPER_ADMIN_PASSWORD),
+        admin_login_ok=bool(config.ADMIN_USERNAME and config.ADMIN_PASSWORD),
+        super_user=config.SUPER_ADMIN_USERNAME, admin_user=config.ADMIN_USERNAME,
     )
 
 
 @app.route("/settings/api/save", methods=["POST"])
-@login_required
+@super_required
 def settings_save():
     try:
         s = settings.save(request.get_json(silent=True) or {})
@@ -764,26 +864,19 @@ def settings_save():
     return jsonify({"ok": True, "settings": s})
 
 
-@app.route("/settings/api/credentials", methods=["POST"])
-@login_required
-def settings_credentials():
-    d = request.get_json(silent=True) or {}
-    new_pw = d.get("new_password") or ""
-    if new_pw and new_pw != (d.get("confirm_password") or ""):
-        return jsonify({"ok": False, "error": "The two new passwords don't match"})
-    try:
-        version = settings.change_credentials(d.get("current_password") or "", d.get("username") or "", new_pw)
-    except ValueError as e:
-        return jsonify({"ok": False, "error": str(e)})
-    session["pv"] = version                      # this browser stays signed in, all others are signed out
-    return jsonify({"ok": True})
-
-
-# ── Activity log viewer ───────────────────────────────────────────────────────
+# ── Activity logs: two separate logs ─────────────────────────────────────────
 @app.route("/logs")
 @login_required
 def logs_view():
-    return render_template("logs.html", logs=fb.get_logs(500))
+    """Super admin: both logs (tabs). Admin: ONLY the admin log — the super admin log is
+    never queried, rendered or sent to an admin's browser."""
+    role = current_role()
+    admin_logs = fb.get_logs("admin", 500)
+    super_logs = fb.get_logs("super", 500) if role == "super" else []
+    tab = request.args.get("tab", "super")
+    if role != "super" or tab not in ("super", "admin"):
+        tab = "admin" if role != "super" else "super"
+    return render_template("logs.html", super_logs=super_logs, admin_logs=admin_logs, tab=tab)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
