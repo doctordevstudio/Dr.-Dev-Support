@@ -97,7 +97,7 @@ window.previewToMe = async () => {
   const fd = new FormData(); fd.append('message', $('messageBox').value); fd.append('format', fmt);
   try{
     const d = await api('/welcome/preview',{method:'POST',body:fd});
-    if(d.ok){ toast('Test sent to '+d.sent_to.length+' admin chat(s)','ok'); if(d.errors&&d.errors.length) toast('Errors: '+d.errors.join('; '),'err',6000); }
+    if(d.ok){ toast('Test sent to your Telegram chat','ok'); if(d.errors&&d.errors.length) toast('Errors: '+d.errors.join('; '),'err',6000); }
     else toast(d.error||'Failed','err',6000);
   }catch(e){ toast(e.message,'err'); }
 };
