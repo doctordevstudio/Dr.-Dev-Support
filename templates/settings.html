@@ -107,27 +107,18 @@
       <button class="btn btn-secondary" onclick="location.reload()">Discard</button></div>
   </div>
 
-  <!-- Security -->
+  <!-- Security (read-only: credentials live in environment variables) -->
   <div class="card set-card" id="security">
     <div class="set-head"><div class="set-ico" style="background:var(--grad-3)"><i class="fa-solid fa-shield-halved"></i></div>
-      <div><h3>Security</h3><p>Change the admin username and password</p></div></div>
-    {% if using_default_pw %}
-    <div class="sec-warn"><i class="fa-solid fa-triangle-exclamation"></i>
-      You are using the default password <code>admin123</code>. Please set a new one below.</div>{% endif %}
-    <div class="grid2">
-      <div class="field"><label class="lb">Username</label>
-        <input class="form-control" id="cr_user" value="{{ admin_user }}" autocomplete="username"/></div>
-      <div class="field"><label class="lb">Current password</label>
-        <input class="form-control" id="cr_cur" type="password" autocomplete="current-password"/></div>
-      <div class="field"><label class="lb">New password</label>
-        <input class="form-control" id="cr_new" type="password" autocomplete="new-password" placeholder="Leave empty to keep"/>
-        <div class="hint">At least 8 characters.</div></div>
-      <div class="field"><label class="lb">Repeat new password</label>
-        <input class="form-control" id="cr_conf" type="password" autocomplete="new-password"/></div>
+      <div><h3>Security</h3><p>Logins are set in your environment variables (Render → Environment)</p></div></div>
+    <div class="sys-grid">
+      <div class="sys"><b>👑 Super admin login</b><span class="dot {{ 'ok' if super_login_ok else 'no' }}"></span>{{ super_user if super_login_ok else 'SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD missing' }}</div>
+      <div class="sys"><b>🛡️ Admin login</b><span class="dot {{ 'ok' if admin_login_ok else 'no' }}"></span>{{ admin_user if admin_login_ok else 'ADMIN_USERNAME / ADMIN_PASSWORD missing' }}</div>
     </div>
     <div class="hint" style="margin-top:10px;font-size:.74rem;color:var(--muted2)">
-      After changing it, every other signed-in browser is logged out. The password is stored hashed in Firebase and never shown again.</div>
-    <div class="save-row"><button class="btn btn-primary" onclick="saveCreds(this)"><i class="fa-solid fa-key"></i> Update credentials</button></div>
+      To change a username or password, edit <code>SUPER_ADMIN_USERNAME</code>, <code>SUPER_ADMIN_PASSWORD</code>,
+      <code>ADMIN_USERNAME</code> or <code>ADMIN_PASSWORD</code> and redeploy — everybody signed in with the old
+      credentials is logged out automatically. Passwords are never shown or stored in the database.</div>
   </div>
 
   <!-- Bot behaviour -->
@@ -205,7 +196,8 @@
     <div class="sys-grid">
       <div class="sys"><b>Telegram bot</b><span class="dot {{ 'ok' if bot_ok else 'no' }}"></span>{{ 'Connected' if bot_ok else 'BOT_TOKEN missing' }}</div>
       <div class="sys"><b>Firebase</b><span class="dot {{ 'ok' if firebase_ok else 'no' }}"></span>{{ 'Configured' if firebase_ok else 'FIREBASE_URL missing' }}</div>
-      <div class="sys"><b>Admin Telegram chats</b><span class="dot {{ 'ok' if admin_ids else 'no' }}"></span>{{ admin_ids|length }} configured</div>
+      <div class="sys"><b>👑 Super admin Telegram chat</b><span class="dot {{ 'ok' if super_chat_ok else 'no' }}"></span>{{ 'Configured' if super_chat_ok else 'SUPER_ADMIN_CHAT_ID missing' }}</div>
+      <div class="sys"><b>🛡️ Admin Telegram chat</b><span class="dot {{ 'ok' if admin_chat_ok else 'no' }}"></span>{{ 'Configured' if admin_chat_ok else 'ADMIN_CHAT_ID missing' }}</div>
       <div class="sys"><b>Panel URL</b>{{ panel_url or '— (set PANEL_URL for the "Open in Admin Panel" button)' }}</div>
     </div>
   </div>
@@ -257,19 +249,6 @@ window.saveGroup = async (ids, btn) => {
       toast('Saved','ok');
       if(ids.some(i => ['panel_name','site_title','tagline','logo_emoji','animations'].includes(i))) setTimeout(() => location.reload(), 700);
     } else toast(d.error || 'Could not save','err',6000);
-  }catch(e){ toast(e.message,'err'); }
-  btn.disabled = false;
-};
-window.saveCreds = async btn => {
-  const body = {username:$('cr_user').value, current_password:$('cr_cur').value,
-                new_password:$('cr_new').value, confirm_password:$('cr_conf').value};
-  if(!body.current_password){ toast('Enter your current password','err'); return; }
-  btn.disabled = true;
-  try{
-    const d = await api('/settings/api/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(d.ok){ toast('Credentials updated — other sessions were signed out','ok',5000);
-      ['cr_cur','cr_new','cr_conf'].forEach(i => $(i).value=''); setTimeout(() => location.reload(), 1200); }
-    else toast(d.error || 'Could not update','err',6000);
   }catch(e){ toast(e.message,'err'); }
   btn.disabled = false;
 };
