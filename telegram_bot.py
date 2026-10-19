@@ -12,8 +12,22 @@ Notes
 * Reactions are two-way:
     user  -> Telegram `message_reaction` update -> stored + admin notified
     admin -> panel click -> stored + set on the Telegram message (user sees it)
+* TWO admin roles: "super" (SUPER_ADMIN_CHAT_ID) and "admin" (ADMIN_CHAT_ID).
+  Both are notified about every customer message and both can use the bot
+  commands. Every action is attributed to the role that did it (`fb.acting_as`)
+  and written to that role's own log.
+* Replies work like Telegram: a message sent with a reply target arrives at the
+  customer as a real Telegram reply to that message. In the bot, an admin just
+  replies to a notification and the answer goes to that customer.
+* Reactions from the bot: an admin who reacts to a notification in Telegram puts that
+  reaction on the customer's message (the notification -> message mapping is kept in
+  Firebase under `admin_notify/<admin chat>/<notification id>`).
+* An ADMIN "deleting" a message only hides it from the admin's own view
+  (`hidden_admin`). The super admin still sees it, the database keeps it, and
+  nothing is removed from the customer's Telegram chat.
 """
 import datetime
+import functools
 import html as html_lib
 import io
 import re
@@ -34,7 +48,15 @@ bot = telebot.TeleBot(config.BOT_TOKEN) if config.BOT_TOKEN else None
 BLOCKED_MSG = "🚫 You have been blocked from contacting support."
 
 # Only emoji Telegram accepts as message reactions (😂 / 😮 are NOT in that list).
-REACTIONS = ["👍", "❤️", "🔥", "😁", "😱", "😢"]
+# The first six are the quick-reaction row, the rest opens with the "+" button.
+REACTIONS = [
+    "👍", "❤️", "🔥", "😁", "😱", "😢",
+    "👎", "🥰", "👏", "🤣", "🤔", "🤯", "😭", "🎉", "🤩", "🙏", "👌", "💯",
+    "😍", "😎", "🤝", "👀", "🫡", "🏆", "⚡", "😇", "🤗", "😘", "💔", "🙈",
+    "🤓", "😡", "🐳", "🍓", "🤡", "🦄",
+]
+
+ROLE_LABEL = {"super": "Super Admin", "admin": "Admin"}
 
 
 # ── Small helpers ─────────────────────────────────────────────────────────────
@@ -119,6 +141,55 @@ def _tg_id(mid: str):
     return int(s) if s.isdigit() else None
 
 
+# ── Replies (Telegram style) ──────────────────────────────────────────────────
+def _reply_kw(tg_id) -> dict:
+    """Keyword arguments that make a Telegram send call a reply to `tg_id`."""
+    if not tg_id:
+        return {}
+    rp = getattr(types, "ReplyParameters", None)
+    if rp:
+        return {"reply_parameters": rp(message_id=int(tg_id), allow_sending_without_reply=True)}
+    return {"reply_to_message_id": int(tg_id), "allow_sending_without_reply": True}
+
+
+def _snippet(m: dict, limit: int = 120) -> str:
+    txt = (m.get("text") or m.get("caption") or "").strip()
+    if txt:
+        return (txt[:limit] + "…") if len(txt) > limit else txt
+    return {"photo": "🖼️ Photo", "video": "🎬 Video", "document": "📄 File"}.get(m.get("type"), "Message")
+
+
+def _reply_ctx(chat_id: str, reply_key: str):
+    """(telegram kwargs, stored reply info) for a reply to the stored message `reply_key`.
+    Unknown / deleted / hidden targets simply mean "no reply" — the message is still sent."""
+    if not reply_key:
+        return {}, None
+    target = fb.get(f"support/{chat_id}/messages/{reply_key}")
+    if not isinstance(target, dict) or target.get("deleted"):
+        return {}, None
+    if fb.get_actor() == "admin" and target.get("hidden_admin"):
+        return {}, None
+    info = {"msg_id": reply_key, "from": target.get("from", "user"),
+            "type": target.get("type", "text"), "text": _snippet(target)}
+    return _reply_kw(_tg_id(reply_key)), info
+
+
+def _incoming_reply(cid: str, msg):
+    """Reply info for a customer message that is a Telegram reply to another message."""
+    rt = getattr(msg, "reply_to_message", None)
+    if not rt:
+        return None
+    frm = "admin" if getattr(getattr(rt, "from_user", None), "is_bot", False) else "user"
+    ctype = getattr(rt, "content_type", "text")
+    snip = _snippet({"text": getattr(rt, "text", None), "caption": getattr(rt, "caption", None),
+                     "type": ctype})
+    try:
+        key = _resolve_message_key(cid, rt.message_id)
+    except Exception:
+        key = ""
+    return {"msg_id": key, "from": frm, "type": ctype, "text": snip}
+
+
 # ── Welcome message ───────────────────────────────────────────────────────────
 def get_welcome_message() -> str:
     """Runtime welcome message from Firebase, falling back to env default."""
@@ -184,18 +255,29 @@ def _send_media(chat_id, kind, file_id, caption, parse_mode=None, markup=None):
     return fn(chat_id, file_id, **kw)
 
 
+def _remember_notification(admin_id, notif_msg, chat_id: str, msg_key: str):
+    """notification message (in the admin's chat) -> customer chat + message, so a Telegram
+    reaction on the notification can be applied to the customer's message."""
+    try:
+        if msg_key and notif_msg is not None:
+            fb.put(f"admin_notify/{admin_id}/{notif_msg.message_id}",
+                   {"cid": str(chat_id), "mid": str(msg_key), "ts": now_ts()})
+    except Exception as e:
+        print(f"[NOTIFY-MAP] {e}")
+
+
 def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
-                    chat_link: str = "", media=None):
+                    chat_link: str = "", media=None, msg_key: str = ""):
     """Media (+caption) -> HTML (+button) -> HTML -> plain text. Always logs the outcome.
     `media` = (kind, file_id): the user's photo/video/file is delivered to the admin chat too."""
     ids = config.ADMIN_CHAT_IDS()
     if not ids:
-        fb.log_event("admin_notify_failed", chat_id=chat_id,
-                     error="ADMIN_CHAT_ID not configured (empty)")
-        print("[NOTIFY] ADMIN_CHAT_ID env var is empty — nothing to send to.")
+        fb.log_event("admin_notify_failed", scope="super", actor="system", chat_id=chat_id,
+                     error="SUPER_ADMIN_CHAT_ID / ADMIN_CHAT_ID not configured (empty)")
+        print("[NOTIFY] SUPER_ADMIN_CHAT_ID and ADMIN_CHAT_ID are empty — nothing to send to.")
         return
     if not bot:
-        fb.log_event("admin_notify_failed", chat_id=chat_id,
+        fb.log_event("admin_notify_failed", scope="super", actor="system", chat_id=chat_id,
                      error="Bot not initialized (BOT_TOKEN missing)")
         return
 
@@ -205,48 +287,57 @@ def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
         mk.add(types.InlineKeyboardButton("🖥️ Open in Admin Panel", url=chat_link))
 
     for admin_id in ids:
-        sent, last_err = False, ""
+        sent, last_err, sent_msg = False, "", None
+        # each admin's delivery result goes ONLY to that admin's own log
+        lscope = config.role_of_chat(admin_id) or "super"
         if media:
             kind, file_id = media
             for pm, cap in (("HTML", html_text), (None, plain_text)):
                 try:
-                    _send_media(admin_id, kind, file_id, cap[:1024], pm, mk)
+                    sent_msg = _send_media(admin_id, kind, file_id, cap[:1024], pm, mk)
                     sent = True
                     break
                 except Exception as e:
                     last_err = f"media: {e}"
                     print(f"[NOTIFY] {admin_id} media failed: {e}")
             if sent:
-                fb.log_event("admin_notified", chat_id=chat_id, admin_id=str(admin_id), msg_type=event)
+                _remember_notification(admin_id, sent_msg, chat_id, msg_key)
+                fb.log_event("admin_notified", scope=lscope, actor="system", chat_id=chat_id,
+                             admin_id=str(admin_id), msg_type=event)
                 continue
         try:
-            bot.send_message(admin_id, html_text, parse_mode="HTML", reply_markup=mk)
+            sent_msg = bot.send_message(admin_id, html_text, parse_mode="HTML", reply_markup=mk)
             sent = True
         except Exception as e:
             last_err = f"html: {e}"
             print(f"[NOTIFY] {admin_id} HTML failed: {e}")
             try:
-                bot.send_message(admin_id, html_text, parse_mode="HTML")
+                sent_msg = bot.send_message(admin_id, html_text, parse_mode="HTML")
                 sent, last_err = True, ""
             except Exception as e2:
                 last_err = f"html-nomarkup: {e2}"
                 try:
-                    bot.send_message(admin_id, plain_text)
+                    sent_msg = bot.send_message(admin_id, plain_text)
                     sent, last_err = True, ""
                 except Exception as e3:
                     last_err = f"plain: {e3}"
                     print(f"[NOTIFY] {admin_id} plain failed: {e3}")
         if sent:
-            fb.log_event("admin_notified", chat_id=chat_id, admin_id=str(admin_id), msg_type=event)
+            _remember_notification(admin_id, sent_msg, chat_id, msg_key)
+            fb.log_event("admin_notified", scope=lscope, actor="system", chat_id=chat_id,
+                         admin_id=str(admin_id), msg_type=event)
         else:
-            fb.log_event("admin_notify_failed", chat_id=chat_id,
+            fb.log_event("admin_notify_failed", scope=lscope, actor="system", chat_id=chat_id,
                          admin_id=str(admin_id), error=last_err)
 
 
 def send_admin_notify(chat_id: str, user_name: str, username: str, text: str,
-                      msg_type: str = "text", file_id: str = "", file_name: str = ""):
-    """Notify every configured admin chat about a new incoming message.
-    Photos / videos / files are delivered to the admin chat as well (setting: forward_media)."""
+                      msg_type: str = "text", file_id: str = "", file_name: str = "",
+                      msg_id: str = "", reply_text: str = ""):
+    """Notify EVERY admin chat (super admin + admin) about a new incoming message.
+    Photos / videos / files are delivered to the admin chats as well (setting: forward_media).
+    The notification carries the chat id and message id: an admin who replies to it in
+    Telegram answers exactly that message (see `_notification_target`)."""
     s = settings.load()
     media = msg_type in ("photo", "video", "document") and bool(file_id)
     forward = media and s["forward_media"]
@@ -260,6 +351,12 @@ def send_admin_notify(chat_id: str, user_name: str, username: str, text: str,
     uname_plain = ("@" + username) if username else "—"
     file_html = f"📎 <b>File:</b> {h(file_name)}\n" if (forward and file_name) else ""
     file_plain = f"📎 File: {file_name}\n" if (forward and file_name) else ""
+    mid_html = f"🔖 <b>Msg ID:</b> <code>{h(str(msg_id))}</code>\n" if msg_id else ""
+    mid_plain = f"🔖 Msg ID: {msg_id}\n" if msg_id else ""
+    rt = (reply_text or "").strip()
+    rt = (rt[:100] + "…") if len(rt) > 100 else rt
+    rep_html = f"↩️ <b>In reply to:</b> {h(rt)}\n" if rt else ""
+    rep_plain = f"↩️ In reply to: {rt}\n" if rt else ""
 
     html_text = (
         "📩 <b>New Support Message</b>\n"
@@ -267,9 +364,12 @@ def send_admin_notify(chat_id: str, user_name: str, username: str, text: str,
         f"👤 <b>Name:</b> {h(user_name)}\n"
         f"🔗 <b>Username:</b> {uname_html}\n"
         f"🆔 <b>Chat ID:</b> <code>{h(str(chat_id))}</code>\n"
+        f"{mid_html}"
         f"{file_html}"
+        f"{rep_html}"
         f"{icon} <b>Message:</b> {h(preview)}\n"
-        f"🕐 <b>Time (IST):</b> {now_str()}"
+        f"🕐 <b>Time (IST):</b> {now_str()}\n"
+        "💬 <i>Reply to this message to answer the customer.</i>"
     )
     plain_text = (
         "📩 New Support Message\n"
@@ -277,12 +377,15 @@ def send_admin_notify(chat_id: str, user_name: str, username: str, text: str,
         f"👤 Name: {user_name}\n"
         f"🔗 Username: {uname_plain}\n"
         f"🆔 Chat ID: {chat_id}\n"
+        f"{mid_plain}"
         f"{file_plain}"
+        f"{rep_plain}"
         f"{icon} Message: {preview}\n"
-        f"🕐 Time (IST): {now_str()}"
+        f"🕐 Time (IST): {now_str()}\n"
+        "💬 Reply to this message to answer the customer."
     )
     _send_to_admins(html_text, plain_text, chat_id, msg_type, _panel_link(chat_id),
-                    media=(msg_type, file_id) if forward else None)
+                    media=(msg_type, file_id) if forward else None, msg_key=str(msg_id or ""))
 
 
 def send_admin_reaction_notify(chat_id, user_name, username, emojis, target_text, target_from):
@@ -399,8 +502,8 @@ def _resolve_message_key(cid: str, tg_message_id) -> str:
 
 
 # ── Admin commands inside Telegram (/help /send /broadcast /cancel) ──────────
-# Only the chat ids listed in ADMIN_CHAT_ID can use these. Everybody else is a
-# normal customer and never sees them.
+# Only the chat ids listed in SUPER_ADMIN_CHAT_ID / ADMIN_CHAT_ID can use these.
+# Everybody else is a normal customer and never sees them.
 _state_lock = threading.Lock()
 _admin_state = {}      # admin user id -> {"action": "send"|"broadcast", "cid": str, "exp": ts}
 _confirms = {}         # token -> {"admin": str, "payload": dict, "exp": ts}
@@ -411,6 +514,11 @@ _FORMAT_ENTITIES = {"bold", "italic", "underline", "strikethrough", "code", "pre
 ADMIN_HELP = (
     "🛠 <b>Admin help</b>\n"
     "━━━━━━━━━━━━━━━━━━━━━\n"
+    "↩️ <b>Quick reply</b>\n"
+    "Swipe / reply to a <b>new-message notification</b> and type your answer (or send an "
+    "image / video / file) — the customer gets it as a Telegram reply to <i>that</i> message.\n"
+    "😍 <b>React</b> to a notification with any Telegram reaction — it is put on the customer's "
+    "message (remove your reaction to remove it there).\n\n"
     "💬 <b>Reply to a user</b>\n"
     "<code>/send chat_id your message</code>\n"
     "→ sends the text to that user.\n"
@@ -484,6 +592,31 @@ def _admin_text_and_format(msg, caption: bool = False):
     return raw, bc.detect_format(raw)
 
 
+def _notification_target(msg):
+    """(chat_id, message_id) when the admin replied to one of OUR notifications, else None.
+    The notification text carries 'Chat ID: …' and (for new messages) 'Msg ID: …'."""
+    rt = getattr(msg, "reply_to_message", None)
+    if not rt or not getattr(getattr(rt, "from_user", None), "is_bot", False):
+        return None
+    src = (getattr(rt, "text", None) or getattr(rt, "caption", None) or "")
+    m = re.search(r"Chat ID:\s*(-?\d+)", src)
+    if not m:
+        return None
+    mm = re.search(r"Msg ID:\s*(\d+)", src)
+    return m.group(1), (mm.group(1) if mm else "")
+
+
+def _as_admin(fn):
+    """Run an admin handler with the right actor, so everything it logs / stores is
+    attributed to the super admin or the admin who triggered it."""
+    @functools.wraps(fn)
+    def wrapper(obj, *a, **kw):
+        uid = getattr(getattr(obj, "from_user", None), "id", None)
+        with fb.acting_as(config.role_of_chat(uid) or None):
+            return fn(obj, *a, **kw)
+    return wrapper
+
+
 def _target_chat(cid: str):
     """(meta, error_html). error_html is '' when the chat can be written to."""
     meta = fb.chat_index().get(cid)
@@ -497,7 +630,7 @@ def _target_chat(cid: str):
     return meta, ""
 
 
-def _admin_deliver(reply_to, cid: str, text: str = "", media=None):
+def _admin_deliver(reply_to, cid: str, text: str = "", media=None, reply_key: str = ""):
     meta, err = _target_chat(cid)
     if err:
         send_msg(reply_to, err)
@@ -505,9 +638,9 @@ def _admin_deliver(reply_to, cid: str, text: str = "", media=None):
     name = meta.get("user_name") or cid
     if media:
         kind, fid, fname, cap = media
-        res = admin_send_media_by_id(cid, kind, fid, fname, cap)
+        res = admin_send_media_by_id(cid, kind, fid, fname, cap, reply_to=reply_key)
     else:
-        res = admin_reply(cid, text)
+        res = admin_reply(cid, text, reply_to=reply_key)
     if res.get("ok"):
         send_msg(reply_to, f"✅ Sent to <b>{h(name)}</b> (<code>{h(cid)}</code>)")
     else:
@@ -580,6 +713,7 @@ if bot:
         return getattr(msg.chat, "type", "private") == "private" and is_admin(getattr(u, "id", None), msg.chat.id)
 
     @bot.message_handler(commands=["start", "help", "send", "broadcast", "cancel"], func=_admin_only)
+    @_as_admin
     def admin_commands(msg):
         import broadcast as bc
         aid, reply = str(msg.from_user.id), msg.chat.id
@@ -626,6 +760,7 @@ if bot:
                                 "(caption optional) — or just type the text. /cancel to abort.")
 
     @bot.message_handler(func=_admin_only, content_types=["text", "photo", "video", "document"])
+    @_as_admin
     def admin_content(msg):
         aid, reply = str(msg.from_user.id), msg.chat.id
         if msg.content_type == "text" and (msg.text or "").startswith("/"):
@@ -633,7 +768,18 @@ if bot:
             return
         st = _get_state(aid)
         if not st:
-            send_msg(reply, "ℹ️ Nothing to do right now. Send /help to see the admin commands.")
+            # No command in progress: a reply to a notification answers that customer
+            target = _notification_target(msg)
+            if target:
+                cid, key = target
+                media = _extract_media(msg)
+                if media:
+                    _admin_deliver(reply, cid, media=media, reply_key=key)
+                elif msg.content_type == "text":
+                    _admin_deliver(reply, cid, text=msg.text or "", reply_key=key)
+                return
+            send_msg(reply, "ℹ️ Nothing to do right now. Send /help to see the admin commands, "
+                            "or reply to a customer notification to answer it.")
             return
         _clear_state(aid)
         media = _extract_media(msg)
@@ -653,6 +799,7 @@ if bot:
                 _admin_broadcast_flow(reply, aid, "text", txt, fmt)
 
     @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("bc:"))
+    @_as_admin
     def on_broadcast_confirm(call):
         try:
             if not is_admin(call.from_user.id):
@@ -781,20 +928,22 @@ if bot:
         if _spam_gate(cid, uname, msg.text or "", getattr(msg, "date", None)):
             return
 
-        store_message(
-            cid, mid,
-            {
-                "msg_id": mid, "chat_id": cid,
-                "user_name": uname, "username": un,
-                "text": msg.text, "type": "text",
-                "from": "user", "time": now_str(), "ts": now_ts(),
-                "read": False, "delivered": True, "edited": False, "deleted": False,
-            },
-        )
+        data = {
+            "msg_id": mid, "chat_id": cid,
+            "user_name": uname, "username": un,
+            "text": msg.text, "type": "text",
+            "from": "user", "time": now_str(), "ts": now_ts(),
+            "read": False, "delivered": True, "edited": False, "deleted": False,
+        }
+        rinfo = _incoming_reply(cid, msg)
+        if rinfo:
+            data["reply_to"] = rinfo
+        store_message(cid, mid, data)
         fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type="text")
 
         mark_admin_msgs_seen(cid)
-        send_admin_notify(cid, uname, un, msg.text, "text")
+        send_admin_notify(cid, uname, un, msg.text, "text", msg_id=mid,
+                          reply_text=(rinfo or {}).get("text", ""))
         _maybe_auto_reply(cid)
 
     def _handle_media(msg, kind: str):
@@ -833,13 +982,17 @@ if bot:
         }
         if file_name:
             data["file_name"] = file_name
+        rinfo = _incoming_reply(cid, msg)
+        if rinfo:
+            data["reply_to"] = rinfo
 
         store_message(cid, mid, data)
         fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type=kind)
 
         mark_admin_msgs_seen(cid)
         send_admin_notify(cid, uname, un, caption or f"[{kind}]", kind,
-                          file_id=file_id, file_name=file_name or "")
+                          file_id=file_id, file_name=file_name or "",
+                          msg_id=mid, reply_text=(rinfo or {}).get("text", ""))
         _maybe_auto_reply(cid)
 
     @bot.message_handler(content_types=["photo"])
@@ -882,10 +1035,27 @@ if bot:
             print(f"[EDITED] {e}")
             fb.log_event("bot_error", error=f"edited handler: {e}")
 
+    # ── Admin reacted to a notification -> reaction on the customer's message ──
+    def _admin_reacted_to_notification(upd):
+        rec = fb.get(f"admin_notify/{upd.chat.id}/{upd.message_id}")
+        if not isinstance(rec, dict) or not rec.get("cid") or not rec.get("mid"):
+            return                                   # not one of our new-message notifications
+        emojis = [getattr(r, "emoji", None) for r in (upd.new_reaction or [])]
+        emojis = [e for e in emojis if e]            # custom / paid emoji can't be mirrored
+        res = set_reaction(rec["cid"], rec["mid"], emojis[0] if emojis else "",
+                           remove=not emojis, validate=False, toggle=False)
+        if res.get("error"):
+            send_msg(upd.chat.id, f"❌ Could not react: {h(str(res['error']))}")
+
     # ── User reacted to a message in Telegram ────────────────────────────────
     def handle_reaction(upd):
         try:
             if getattr(upd, "user", None) is None:      # anonymous / channel
+                return
+            admin_role = config.role_of_chat(getattr(upd.user, "id", None))
+            if admin_role and str(upd.chat.id) == str(upd.user.id):
+                with fb.acting_as(admin_role):
+                    _admin_reacted_to_notification(upd)
                 return
             cid = str(upd.chat.id)
             key = _resolve_message_key(cid, upd.message_id)
@@ -924,18 +1094,28 @@ if bot:
 
 
 # ── Admin actions ─────────────────────────────────────────────────────────────
-def admin_reply(chat_id: str, text: str) -> dict:
+def _sender() -> str:
+    """Role of whoever is sending right now ('super' | 'admin'); stored on every outgoing message."""
+    return fb.get_actor() or "admin"
+
+
+def admin_reply(chat_id: str, text: str, reply_to: str = "") -> dict:
+    """Send a text to a customer. `reply_to` = stored key of the message to reply to:
+    the customer then sees a real Telegram reply."""
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
     try:
-        m = bot.send_message(chat_id, h(text), parse_mode="HTML")
+        kw, rinfo = _reply_ctx(chat_id, reply_to)
+        m = bot.send_message(chat_id, h(text), parse_mode="HTML", **kw)
         mid = str(m.message_id)
         data = {
             "msg_id": f"admin_{mid}", "chat_id": chat_id,
-            "text": text, "type": "text", "from": "admin",
+            "text": text, "type": "text", "from": "admin", "sent_by": _sender(),
             "time": now_str(), "ts": now_ts(),
             "read": False, "delivered": True, "edited": False, "deleted": False,
         }
+        if rinfo:
+            data["reply_to"] = rinfo
         saved = fb.put(f"support/{chat_id}/messages/admin_{mid}", data)
         fb.patch(
             f"support/{chat_id}/meta",
@@ -962,16 +1142,19 @@ def upload_kind(mime: str, size: int) -> str:
     return "document"
 
 
-def _store_admin_media(chat_id: str, m, ftype: str, file_id: str, filename: str, caption: str) -> dict:
+def _store_admin_media(chat_id: str, m, ftype: str, file_id: str, filename: str, caption: str,
+                       rinfo=None) -> dict:
     mid = str(m.message_id)
     data = {
         "msg_id": f"admin_{mid}", "chat_id": chat_id,
         "text": caption, "caption": caption,
         "file_id": file_id, "file_name": filename,
-        "type": ftype, "from": "admin",
+        "type": ftype, "from": "admin", "sent_by": _sender(),
         "time": now_str(), "ts": now_ts(),
         "read": False, "delivered": True, "edited": False, "deleted": False,
     }
+    if rinfo:
+        data["reply_to"] = rinfo
     fb.put(f"support/{chat_id}/messages/admin_{mid}", data)
     fb.patch(
         f"support/{chat_id}/meta",
@@ -981,7 +1164,8 @@ def _store_admin_media(chat_id: str, m, ftype: str, file_id: str, filename: str,
     return {"ok": True, "mid": f"admin_{mid}", "message": data, "type": ftype}
 
 
-def admin_send_file(chat_id: str, file_bytes: bytes, filename: str, mime_type: str, caption: str = "") -> dict:
+def admin_send_file(chat_id: str, file_bytes: bytes, filename: str, mime_type: str, caption: str = "",
+                    reply_to: str = "") -> dict:
     """Panel upload -> Telegram."""
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
@@ -989,39 +1173,42 @@ def admin_send_file(chat_id: str, file_bytes: bytes, filename: str, mime_type: s
         f = io.BytesIO(file_bytes)
         f.name = filename
         cap = h(caption) if caption else None
+        kw, rinfo = _reply_ctx(chat_id, reply_to)
 
         kind = upload_kind(mime_type, len(file_bytes))
         if kind == "photo":
-            m = bot.send_photo(chat_id, f, caption=cap, parse_mode="HTML")
+            m = bot.send_photo(chat_id, f, caption=cap, parse_mode="HTML", **kw)
             file_id, ftype = m.photo[-1].file_id, "photo"
         elif kind == "video":
-            m = bot.send_video(chat_id, f, caption=cap, parse_mode="HTML")
+            m = bot.send_video(chat_id, f, caption=cap, parse_mode="HTML", **kw)
             file_id, ftype = m.video.file_id, "video"
         else:
-            m = bot.send_document(chat_id, f, caption=cap, parse_mode="HTML")
+            m = bot.send_document(chat_id, f, caption=cap, parse_mode="HTML", **kw)
             file_id, ftype = m.document.file_id, "document"
-        return _store_admin_media(chat_id, m, ftype, file_id, filename, caption)
+        return _store_admin_media(chat_id, m, ftype, file_id, filename, caption, rinfo)
     except Exception as e:
         fb.log_event("bot_error", chat_id=chat_id, error=str(e))
         return {"error": str(e)}
 
 
-def admin_send_media_by_id(chat_id: str, ftype: str, file_id: str, filename: str, caption: str = "") -> dict:
+def admin_send_media_by_id(chat_id: str, ftype: str, file_id: str, filename: str, caption: str = "",
+                          reply_to: str = "") -> dict:
     """Telegram /send flow: the admin already uploaded the file to the bot, re-use its file_id."""
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
     try:
         cap = h(caption) if caption else None
+        kw, rinfo = _reply_ctx(chat_id, reply_to)
         if ftype == "photo":
-            m = bot.send_photo(chat_id, file_id, caption=cap, parse_mode="HTML")
+            m = bot.send_photo(chat_id, file_id, caption=cap, parse_mode="HTML", **kw)
             new_id = m.photo[-1].file_id
         elif ftype == "video":
-            m = bot.send_video(chat_id, file_id, caption=cap, parse_mode="HTML")
+            m = bot.send_video(chat_id, file_id, caption=cap, parse_mode="HTML", **kw)
             new_id = m.video.file_id
         else:
-            m = bot.send_document(chat_id, file_id, caption=cap, parse_mode="HTML")
+            m = bot.send_document(chat_id, file_id, caption=cap, parse_mode="HTML", **kw)
             new_id = m.document.file_id
-        return _store_admin_media(chat_id, m, ftype, new_id, filename, caption)
+        return _store_admin_media(chat_id, m, ftype, new_id, filename, caption, rinfo)
     except Exception as e:
         fb.log_event("bot_error", chat_id=chat_id, error=str(e))
         return {"error": str(e)}
@@ -1072,8 +1259,26 @@ def admin_edit_message(chat_id: str, admin_mid: str, new_text: str) -> dict:
     return res
 
 
-def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "admin") -> dict:
-    """SOFT delete: the record stays in Firebase with deleted=true."""
+def hide_message_for_admin(chat_id: str, mid: str) -> dict:
+    """What "delete" means for the ADMIN role: the message disappears from the admin's own
+    view only. It is NOT flagged deleted, NOT removed from the super admin's view, NOT
+    touched in the database and NOT removed from the customer's Telegram chat."""
+    path = f"support/{chat_id}/messages/{mid}"
+    if not isinstance(fb.get(f"{path}/from"), str):
+        return {"error": "Message not found"}
+    if fb.patch(path, {"hidden_admin": True, "hidden_admin_at": now_str()}) is None:
+        return {"error": "Could not save to Firebase"}
+    fb.log_event("message_deleted", chat_id=chat_id, msg_id=mid, mode="hidden from admin view only")
+    return {"ok": True}
+
+
+def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "") -> dict:
+    """Delete a message.
+    * ADMIN role  -> hidden from the admin's view only (see hide_message_for_admin).
+    * SUPER admin -> SOFT delete: the record stays in Firebase with deleted=true."""
+    if fb.get_actor() == "admin":
+        return hide_message_for_admin(chat_id, mid)
+    deleted_by = deleted_by or "super"
     tg_deleted = None
     if mid.startswith("admin_") and bot:
         tg_id = _tg_id(mid)
@@ -1096,12 +1301,13 @@ def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "admin") -> di
     return res
 
 
-def set_reaction(chat_id: str, mid: str, emoji: str = "", remove: bool = False) -> dict:
+def set_reaction(chat_id: str, mid: str, emoji: str = "", remove: bool = False,
+                 validate: bool = True, toggle: bool = True) -> dict:
     """Admin reaction. Telegram bots can hold ONE reaction per message, so
     picking an emoji replaces the previous one and picking the same emoji again
     removes it. The reaction is also set on the real Telegram message."""
     emoji = canon_emoji(emoji)
-    if not remove and emoji not in REACTIONS:
+    if not remove and validate and emoji not in REACTIONS:
         return {"error": "Invalid reaction"}
 
     path = f"support/{chat_id}/messages/{mid}"
@@ -1110,7 +1316,7 @@ def set_reaction(chat_id: str, mid: str, emoji: str = "", remove: bool = False) 
         return {"error": "Message not found"}
 
     view = reaction_view(msg.get("reactions"))
-    new = [] if (remove or emoji in view["admin"]) else [emoji]
+    new = [] if (remove or (toggle and emoji in view["admin"])) else [emoji]
 
     warning = ""
     tg_id = _tg_id(mid)
