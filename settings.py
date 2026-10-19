@@ -3,17 +3,19 @@ settings.py — runtime settings editable from the admin panel.
 
 Stored in Firebase:
     settings/site   -> everything below in DEFAULTS (safe to show in the UI)
-    settings/auth   -> {username, password_hash, changed_ts}  (never sent to the browser)
 
 Environment variables still provide the first-run defaults; once a value is
 saved from the Settings page, the saved value wins. Values are cached for a
 few seconds so every request/handler can call `load()` cheaply.
+
+Login credentials (super admin + admin) are NOT stored here: they come only
+from environment variables (see config.py) and can't be changed from the panel.
 """
+import hashlib
 import re
+import secrets
 import threading
 import time
-
-from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
 import firebase_helper as fb
@@ -80,7 +82,7 @@ _BOOLS = {"animations", "notify_sound", "notify_new_message", "forward_media",
 _STRS = {"panel_name": 40, "site_title": 70, "tagline": 40, "logo_emoji": 8, "auto_reply": 500}
 
 _lock = threading.Lock()
-_cache = {"data": None, "ts": 0.0, "auth": None, "auth_ts": 0.0}
+_cache = {"data": None, "ts": 0.0}
 TTL = 5.0
 
 
@@ -177,71 +179,41 @@ def css_vars(s: dict) -> str:
             f"--grad:linear-gradient(135deg,{a} 0%,{b} 100%)}}")
 
 
-# ── Admin credentials ─────────────────────────────────────────────────────────
-def _auth_record() -> dict:
-    now = time.time()
-    with _lock:
-        if _cache["auth"] is not None and now - _cache["auth_ts"] < TTL:
-            return _cache["auth"]
-    rec = fb.get("settings/auth")
-    rec = rec if isinstance(rec, dict) else {}
-    with _lock:
-        _cache["auth"], _cache["auth_ts"] = rec, time.time()
-    return rec
+# ── Admin credentials (environment variables only) ───────────────────────────
+def _accounts():
+    """(role, username, password) for every role that is fully configured."""
+    out = []
+    if config.SUPER_ADMIN_USERNAME and config.SUPER_ADMIN_PASSWORD:
+        out.append(("super", config.SUPER_ADMIN_USERNAME, config.SUPER_ADMIN_PASSWORD))
+    if config.ADMIN_USERNAME and config.ADMIN_PASSWORD:
+        out.append(("admin", config.ADMIN_USERNAME, config.ADMIN_PASSWORD))
+    return out
 
 
-def admin_username() -> str:
-    return _auth_record().get("username") or config.ADMIN_USERNAME
+def login_configured() -> bool:
+    return bool(_accounts())
 
 
-def using_default_password() -> bool:
-    rec = _auth_record()
-    return not rec.get("password_hash") and config.ADMIN_PASSWORD == "admin123"
+def authenticate(user: str, password: str):
+    """Returns 'super', 'admin' or None.
+
+    Both accounts are always compared (no early exit) so the response time does
+    not reveal which username exists. The super admin wins if both accounts
+    were given identical credentials.
+    """
+    u, p = (user or "").encode(), (password or "").encode()
+    found = None
+    for role, name, pw in _accounts():
+        ok = secrets.compare_digest(u, name.encode()) & secrets.compare_digest(p, pw.encode())
+        if ok and found is None:
+            found = role
+    return found
 
 
-def check_credentials(user: str, password: str) -> bool:
-    import secrets
-    rec = fb.get("settings/auth")                    # always fresh at login time
-    rec = rec if isinstance(rec, dict) else {}
-    with _lock:
-        _cache["auth"], _cache["auth_ts"] = rec, time.time()
-    name = rec.get("username") or config.ADMIN_USERNAME
-    user_ok = secrets.compare_digest(user.encode(), name.encode())
-    if rec.get("password_hash"):
-        pass_ok = check_password_hash(rec["password_hash"], password)
-    else:
-        pass_ok = secrets.compare_digest(password.encode(), config.ADMIN_PASSWORD.encode())
-    return user_ok and pass_ok
-
-
-def auth_version() -> int:
-    """Changes whenever the password/username changes -> old sessions are logged out."""
-    return int(_auth_record().get("changed_ts") or 0)
-
-
-def change_credentials(current_password: str, new_username: str, new_password: str) -> int:
-    if not check_credentials(admin_username(), current_password):
-        raise ValueError("Current password is wrong")
-    old_username = admin_username()
-    new_username = (new_username or "").strip() or old_username
-    if len(new_username) < 3 or len(new_username) > 40:
-        raise ValueError("Username must be 3–40 characters")
-    rec = {"username": new_username, "changed_ts": int(time.time())}
-    existing = fb.get("settings/auth")
-    existing = existing if isinstance(existing, dict) else {}
-    if new_password:
-        if len(new_password) < 8:
-            raise ValueError("New password must be at least 8 characters")
-        rec["password_hash"] = generate_password_hash(new_password)
-    else:
-        # username-only change keeps whatever password is in force
-        if existing.get("password_hash"):
-            rec["password_hash"] = existing["password_hash"]
-        else:
-            rec["password_hash"] = generate_password_hash(config.ADMIN_PASSWORD)
-    if fb.put("settings/auth", rec) is None:
-        raise ValueError("Could not save to Firebase")
-    with _lock:
-        _cache["auth"], _cache["auth_ts"] = rec, time.time()
-    fb.log_event("admin_credentials_changed", username_changed=new_username != old_username)
-    return rec["changed_ts"]
+def session_version(role: str) -> str:
+    """Changes whenever that role's env credentials change -> old sessions are signed out."""
+    for r, name, pw in _accounts():
+        if r == role:
+            raw = f"{r}|{name}|{pw}|{config.SECRET_KEY}".encode()
+            return hashlib.sha256(raw).hexdigest()[:16]
+    return ""
