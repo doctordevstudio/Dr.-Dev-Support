@@ -61,19 +61,33 @@ small Python process, so the free tier of Render is enough.
 
 ### ⚙️ Settings page (no redeploy needed)
 Website name, browser title, tagline, logo emoji · **dark / light / auto theme** + accent colour presets · animations on/off ·
-change **admin username & password** (stored hashed; other sessions are signed out) · auto-reply text & cool-down ·
+auto-reply text & cool-down ·
 notification toggles · anti-spam thresholds · pagination · broadcast speed.
 
 ### 🛡 Safety
 Anti-spam (rate limit, duplicate detection, mute, auto-block) · login brute-force lock · CSRF-safe cookies ·
-ID validation on every route · **nothing is ever hard-deleted from Firebase** · full **activity log**.
+ID validation on every route · **nothing is ever hard-deleted from Firebase** · full **activity log** (IP addresses are never logged).
+
+### 👑🛡 Two admins: Super Admin + Admin
+| | 👑 Super Admin | 🛡 Admin |
+|---|---|---|
+| Panel login | `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` | `ADMIN_USERNAME` / `ADMIN_PASSWORD` |
+| Telegram chat (notifications + bot commands) | `SUPER_ADMIN_CHAT_ID` | `ADMIN_CHAT_ID` |
+| Conversations, replies, reactions, broadcasts, welcome message | ✅ | ✅ |
+| Settings page | ✅ | ❌ |
+| Activity log | **Super Admin tab + Admin tab** | **Admin log only** |
+| Deleting a message / broadcast | real soft delete (record stays in Firebase, removed from the customer's Telegram where possible) | **hidden from the admin's own view only** — the super admin still sees it, the database keeps it, the customer's Telegram is untouched |
+
+Both chats get every notification and both can use `/send`, `/broadcast` and the reply-to-notification flow. Every outgoing
+message is tagged with who sent it. Credentials exist **only** as environment variables — there is no built-in default
+password and nothing to change in the panel; edit the variable and redeploy (old sessions are logged out automatically).
 
 ### 🎨 Polish
 Animated gradient background, staggered sidebar, ripple buttons, animated counters, springy modals, skeleton loading,
 Telegram-HTML live preview, fully responsive (great on phones), respects *reduced motion*.
 
 ## 🤖 Telegram admin commands
-Only the chat IDs in `ADMIN_CHAT_ID` can use these. Everyone else is a normal customer.
+Only the chat IDs in `SUPER_ADMIN_CHAT_ID` and `ADMIN_CHAT_ID` can use these. Everyone else is a normal customer.
 
 | Command | What it does |
 |---|---|
@@ -82,6 +96,7 @@ Only the chat IDs in `ADMIN_CHAT_ID` can use these. Everyone else is a normal cu
 | `/send <chat_id>` | Then send an **image / video / file** (caption optional) and it is delivered to that user |
 | `/broadcast <text>` | Sends the text to **all** users (shows a preview with **Send / Cancel** first) |
 | `/broadcast` | Then send an **image / video / file** (caption optional) to broadcast it |
+| *reply to a new-message notification* | Type your answer (or send an image / video / file) — the customer receives it as a **Telegram reply to that exact message** |
 | `/cancel` | Aborts the current action |
 
 The `chat_id` is in every new-message notification (tap to copy). HTML such as `<b>bold</b>` works in broadcasts.
@@ -99,18 +114,20 @@ export $(grep -v '^#' .env | xargs)                   # or set them in your IDE 
 python app.py                                         # http://localhost:5000
 ```
 1. Create a bot with [@BotFather](https://t.me/BotFather) → copy the token into `BOT_TOKEN`.
-2. Get your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot) → `ADMIN_CHAT_ID`.
+2. Get the numeric Telegram IDs of both admins from [@userinfobot](https://t.me/userinfobot) → `SUPER_ADMIN_CHAT_ID` and `ADMIN_CHAT_ID`.
 3. Set up Firebase (below) → `FIREBASE_URL` + `FIREBASE_SECRET`.
-4. Open the panel, log in, then **change the default password in Settings → Security**.
+4. Set `SUPER_ADMIN_USERNAME`, `SUPER_ADMIN_PASSWORD`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` and open the panel.
 
 ## 🔧 Environment variables
 | Variable | Required | Default | Description |
 |---|:--:|---|---|
 | `BOT_TOKEN` | ✅ | — | Telegram bot token from @BotFather |
-| `ADMIN_CHAT_ID` | ✅ | — | Your Telegram user ID (several IDs: `123,456`) |
+| `SUPER_ADMIN_CHAT_ID` | ✅ | — | Telegram user ID of the super admin |
+| `ADMIN_CHAT_ID` | ✅ | — | Telegram user ID of the admin |
 | `FIREBASE_URL` | ✅ | — | `https://<project>-default-rtdb.firebaseio.com` |
 | `FIREBASE_SECRET` | ✅ | — | Database secret (Project settings → Service accounts → Database secrets) |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | ✅ | `admin` / `admin123` | First-run login — change it in **Settings** |
+| `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` | ✅ | — | Super admin panel login (no default — login stays disabled until set) |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | ✅ | — | Admin panel login (no default) |
 | `SECRET_KEY` | ✅ | random | Flask session key (Render can generate it) |
 | `PANEL_URL` | ➖ | — | Public URL of the panel → adds an *Open in Admin Panel* button to notifications |
 | `PANEL_NAME` | ➖ | `Support Panel` | Initial site name (editable in Settings) |
@@ -158,10 +175,10 @@ Telegram user ─▶ Bot (pyTelegramBotAPI, polling thread) ─▶ Firebase RTDB
 - `support/<chat_id>/messages` — every message · `support/<chat_id>/meta` — profile, unread, blocked
 - `chat_index/<chat_id>` — tiny mirror of the meta used for the fast chat list and broadcast recipients
 - `broadcasts/<id>` · `broadcast_deliveries/<id>/<chat_id>` · `broadcast_failures/<id>/<chat_id>` — broadcast history
-- `settings/site`, `settings/auth`, `settings/welcome` — runtime settings · `logs` — audit trail
+- `settings/site`, `settings/welcome` — runtime settings · `logs` — Super Admin log · `logs_admin` — Admin log
 
 **Soft delete:** deleting a message or a broadcast in the panel removes it from Telegram (when Telegram allows it) but only
-sets `deleted: true` in Firebase. Nothing is ever removed from your database. Edits keep the previous text in `edit_history`.
+sets `deleted: true` in Firebase (an **admin's** delete only sets `hidden_admin: true`, so the super admin still sees the message). Nothing is ever removed from your database. Edits keep the previous text in `edit_history`.
 
 **Telegram limits worth knowing:** bots can only react with Telegram's built-in reaction emoji (the panel offers exactly those),
 and Telegram may refuse to delete very old messages — the panel tells you when that happens.
