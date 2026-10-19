@@ -14,6 +14,9 @@ How it works
   The delivery ids are what make EDIT and DELETE possible later.
 * DELETE IS SOFT: Telegram messages are removed from the users' chats, but the
   broadcast record and every chat-history copy stay in Firebase (deleted=true).
+* Roles: a SUPER admin's "delete" really removes the broadcast from the users' chats
+  (soft delete in the database). An ADMIN's "delete" only hides the broadcast from the
+  admin's own list — nothing is removed from users, the super admin or the database.
 * One job at a time, Telegram 429 flood waits are honoured, users who blocked
   the bot are remembered (`unreachable`) and skipped next time.
 * Media: the file is uploaded ONCE (to the first reachable user); Telegram
@@ -161,12 +164,23 @@ def _flush(batch: dict):
         fb._invalidate_index()          # unreachable flags etc. must show up immediately
 
 
+def _with_actor(actor, fn, *args):
+    """Background jobs run in their own thread: carry the starter's role over so logs and
+    stored messages are attributed to the right admin."""
+    fb.set_actor(actor)
+    try:
+        fn(*args)
+    finally:
+        fb.set_actor(None)
+
+
 def _history_entry(cid, tg_id, bid, rec):
     key = f"admin_{tg_id}"
     kind, text, fmt = rec["kind"], rec.get("text", ""), rec["format"]
     plain = tg.html_to_plain(text) if fmt == "html" else text
     entry = {
         "msg_id": key, "chat_id": cid, "type": kind, "from": "admin",
+        "sent_by": fb.get_actor() or "admin",
         "text": plain, "raw_text": text, "format": fmt,
         "time": tg.now_str(), "ts": tg.now_ts(),
         "read": False, "delivered": True, "edited": False, "deleted": False,
@@ -352,7 +366,7 @@ def _run_delete(job, bid, deliveries):
             base = f"support/{cid}/messages/admin_{tg_id}"
             batch[f"{base}/deleted"] = True
             batch[f"{base}/deleted_at"] = tg.now_str()
-            batch[f"{base}/deleted_by"] = "admin"
+            batch[f"{base}/deleted_by"] = "super"
             job["done"], job["failed"] = ok + failed, failed
             if (i + 1) % 20 == 0 or time.time() - last_flush > 2:
                 _flush(batch)
@@ -417,7 +431,8 @@ def start_send(text: str = "", fmt: str = "html", rebroadcast_of: str = "", kind
     fb.log_event("broadcast_started", broadcast_id=bid, total=len(recipients), fmt=fmt,
                  kind=kind, source=source, resend_of=rebroadcast_of or "")
     _invalidate()
-    threading.Thread(target=_run_send, args=(job, bid, dict(record), recipients, file_bytes, notify_admin),
+    threading.Thread(target=_with_actor,
+                     args=(fb.get_actor(), _run_send, job, bid, dict(record), recipients, file_bytes, notify_admin),
                      daemon=True, name=f"bc-send-{bid}").start()
     return {"ok": True, "id": bid, "total": len(recipients)}
 
@@ -474,12 +489,27 @@ def start_edit(bid: str, text: str, fmt: str):
     })
     fb.log_event("broadcast_edit_started", broadcast_id=bid, total=len(deliveries))
     _invalidate()
-    threading.Thread(target=_run_edit, args=(job, bid, rec, text, fmt, deliveries),
+    threading.Thread(target=_with_actor,
+                     args=(fb.get_actor(), _run_edit, job, bid, rec, text, fmt, deliveries),
                      daemon=True, name=f"bc-edit-{bid}").start()
     return {"ok": True, "id": bid, "total": len(deliveries)}
 
 
+def hide_for_admin(bid: str):
+    """ADMIN role "delete": only hides the broadcast from the admin's list."""
+    rec = _get_record(bid)
+    if not rec:
+        return {"ok": False, "error": "Broadcast not found"}
+    if fb.patch(f"broadcasts/{bid}", {"hidden_admin": True, "hidden_admin_at": tg.now_str()}) is None:
+        return {"ok": False, "error": "Could not save to Firebase"}
+    fb.log_event("broadcast_deleted", broadcast_id=bid, mode="hidden from admin view only")
+    _invalidate()
+    return {"ok": True, "id": bid, "hidden": True}
+
+
 def start_delete(bid: str):
+    if fb.get_actor() == "admin":
+        return hide_for_admin(bid)
     if not tg.bot:
         return {"ok": False, "error": "Bot is not configured"}
     rec = _get_record(bid)
@@ -500,7 +530,8 @@ def start_delete(bid: str):
     })
     fb.log_event("broadcast_delete_started", broadcast_id=bid, total=len(deliveries))
     _invalidate()
-    threading.Thread(target=_run_delete, args=(job, bid, deliveries),
+    threading.Thread(target=_with_actor,
+                     args=(fb.get_actor(), _run_delete, job, bid, deliveries),
                      daemon=True, name=f"bc-del-{bid}").start()
     return {"ok": True, "id": bid, "total": len(deliveries)}
 
@@ -521,8 +552,9 @@ def details(bid: str) -> dict:
             ("id", "state", "sent", "failed", "total", "last_error", "source", "kind")}}
 
 
-def snapshot() -> dict:
-    """History for the UI, newest first, with live progress and totals."""
+def snapshot(role: str = "super") -> dict:
+    """History for the UI, newest first, with live progress and totals.
+    The admin role does not see broadcasts it "deleted" (hidden for admin only)."""
     now = time.time()
     if _snap["data"] is None or now - _snap["ts"] > 1.0:
         raw = fb.get("broadcasts") or {}
@@ -533,6 +565,11 @@ def snapshot() -> dict:
         _snap["data"] = items[: config.BROADCAST_HISTORY_LIMIT]
         _snap["ts"] = now
     items = [dict(r) for r in _snap["data"]]
+    if role == "admin":
+        items = [r for r in items if not r.get("hidden_admin")]
+    for r in items:
+        r.pop("hidden_admin", None)
+        r.pop("hidden_admin_at", None)
     cur = _current
     if cur and cur.get("running"):
         for r in items:
