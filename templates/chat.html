@@ -38,7 +38,7 @@
 <style>
 .chat-shell{display:flex;flex-direction:column;height:calc(100vh - 130px);height:calc(100dvh - 130px);max-width:900px;margin:0 auto}
 .chat-messages{
-  flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:12px;
+  flex:1;overflow-y:auto;overflow-x:hidden;padding:20px 16px;display:flex;flex-direction:column;gap:12px;
   background:linear-gradient(180deg,var(--bg2) 0%,var(--bg) 100%);
   border-radius:var(--radius);border:1px solid var(--border);position:relative;
 }
@@ -48,7 +48,8 @@
                    radial-gradient(circle at 80% 70%,rgba(var(--accent2-rgb),.05) 0,transparent 40%);
 }
 #msgsContainer{display:flex;flex-direction:column;gap:12px}
-.bubble-wrap{display:flex;flex-direction:column;position:relative;animation:msgIn .35s cubic-bezier(.4,0,.2,1)}
+.bubble-wrap{display:flex;flex-direction:column;position:relative;animation:msgIn .35s cubic-bezier(.4,0,.2,1);
+  touch-action:pan-y;-webkit-user-select:text;user-select:text}
 .bubble-wrap.admin{align-items:flex-end}
 .bubble-wrap.user{align-items:flex-start}
 @keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
@@ -63,6 +64,53 @@
 .msg-text{white-space:pre-wrap}
 .bubble-meta .edited-tag{display:inline-flex;align-items:center;gap:3px;font-style:italic;color:var(--muted)}
 .bubble-meta .del-x{color:var(--red)}
+.bubble-meta .by-tag{font-weight:700;font-size:.62rem;padding:1px 7px;border-radius:99px;background:var(--card2);
+  border:1px solid var(--border);white-space:nowrap}
+.bubble-meta .hidden-tag{font-size:.62rem;color:var(--yellow);font-weight:600;white-space:nowrap}
+
+/* ── swipe-left-to-reply (touch) ── */
+.swipe-ico{position:absolute;left:100%;top:50%;margin-left:12px;width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:.8rem;pointer-events:none;
+  background:var(--card2);border:1px solid var(--border);color:var(--accent);
+  opacity:var(--sw,0);transform:translateY(-50%) scale(calc(.55 + .45 * var(--sw,0)))}
+.bubble-wrap.swipe-ready .swipe-ico{background:var(--accent);border-color:var(--accent);color:#fff}
+.bubble-wrap.swiping{transition:none}
+.bubble-wrap.swipe-back{transition:transform .2s ease}
+
+/* ── quoted message inside a bubble ── */
+.reply-quote{display:block;border-left:3px solid var(--accent3);background:rgba(0,0,0,.16);border-radius:8px;
+  padding:5px 9px;font-size:.76rem;cursor:pointer;max-width:100%;text-align:left;line-height:1.35}
+.bubble.user .reply-quote{background:rgba(var(--accent-rgb),.09);border-left-color:var(--accent)}
+.reply-quote .rq-name{display:block;font-weight:700;font-size:.7rem;margin-bottom:1px;color:var(--accent3)}
+.bubble.user .reply-quote .rq-name{color:var(--accent)}
+.reply-quote .rq-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  white-space:normal;opacity:.9;word-break:break-word}
+
+/* ── reply preview above the composer ── */
+.reply-bar{display:none;align-items:center;gap:10px;padding:8px 12px;margin-bottom:10px;background:var(--card2);
+  border-left:3px solid var(--accent);border-radius:10px;animation:msgIn .2s}
+.reply-bar.open{display:flex}
+.reply-bar .rb-ico{color:var(--accent)}
+.reply-bar .rb-body{flex:1;min-width:0}
+.reply-bar .rb-name{font-size:.72rem;font-weight:700;color:var(--accent)}
+.reply-bar .rb-text{font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reply-bar .rb-x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;padding:4px 6px;border-radius:6px}
+.reply-bar .rb-x:hover{background:var(--red);color:#fff}
+
+/* ── emoji picker (composer) ── */
+.chat-input-bar{position:relative}
+.emoji-pop{display:none;position:absolute;left:14px;bottom:calc(100% + 8px);width:min(344px,calc(100% - 28px));
+  background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,.45);
+  z-index:150;overflow:hidden;animation:popIn .15s}
+.emoji-pop.open{display:block}
+.emoji-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--card2)}
+.emoji-tabs button{flex:1;background:none;border:none;border-bottom:2px solid transparent;padding:9px 0;
+  font-size:1.05rem;cursor:pointer;opacity:.55;transition:all .15s}
+.emoji-tabs button.active{opacity:1;border-bottom-color:var(--accent)}
+.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;padding:8px;max-height:220px;overflow-y:auto}
+.emoji-grid button{background:none;border:none;font-size:1.3rem;line-height:1.1;padding:5px 0;border-radius:8px;
+  cursor:pointer;transition:all .12s}
+.emoji-grid button:hover{background:var(--card2);transform:scale(1.2)}
 mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1px}
 .bubble.search-focus{outline:2px solid #ffd60a;outline-offset:2px;animation:focusPulse 1.2s ease 2}
 @keyframes focusPulse{50%{outline-color:transparent}}
@@ -102,6 +150,11 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
   border:1px solid var(--border);border-radius:12px;padding:4px 6px;white-space:nowrap;
   box-shadow:0 8px 24px rgba(0,0,0,.4);animation:popIn .15s}
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.94)}to{opacity:1;transform:none}}
+.action-bar{flex-wrap:wrap;max-width:min(344px,calc(100vw - 16px))}
+.action-bar .rx-grid{display:none;flex:0 0 100%;grid-template-columns:repeat(8,1fr);gap:1px;margin-top:4px;
+  padding-top:6px;border-top:1px solid var(--border)}
+.action-bar.expanded .rx-grid{display:grid}
+.action-bar .more-btn{font-size:.8rem;opacity:.8}
 .action-bar .emoji-btn{background:none;border:none;font-size:1.05rem;cursor:pointer;
   padding:4px 6px;border-radius:8px;transition:all .15s;line-height:1}
 .action-bar .emoji-btn:hover{background:var(--card2);transform:scale(1.2)}
@@ -242,6 +295,15 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
   </div>
 
   <div class="chat-input-bar">
+    <div class="reply-bar" id="replyBar">
+      <i class="fa-solid fa-reply rb-ico"></i>
+      <div class="rb-body"><div class="rb-name" id="rbName">Replying</div><div class="rb-text" id="rbText"></div></div>
+      <button class="rb-x" onclick="cancelReply()" title="Cancel reply (Esc)"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="emoji-pop" id="emojiPop">
+      <div class="emoji-tabs" id="emojiTabs"></div>
+      <div class="emoji-grid" id="emojiGrid"></div>
+    </div>
     <div class="file-preview-card" id="filePreviewCard">
       <div class="file-preview-icon" id="filePreviewIcon">📎</div>
       <img class="file-preview-thumb" id="filePreviewThumb" style="display:none" alt=""/>
@@ -258,6 +320,7 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
     <div class="chat-input-row">
       <button class="btn-attach" onclick="document.getElementById('fileInput').click()" title="Attach file">
         <i class="fa-solid fa-paperclip"></i></button>
+      <button class="btn-attach" id="emojiBtn" onclick="toggleEmoji(event)" title="Emoji">😊</button>
       <textarea id="msgInput" class="chat-textarea" rows="1"
         placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
         onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
@@ -331,6 +394,7 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
 const $ = id => document.getElementById(id);
 const DATA = JSON.parse($('chatData').textContent);
 const CID = DATA.cid, REACTIONS = DATA.reactions, PAGE = DATA.page_size;
+const ROLE = DATA.role || 'super', USER_NAME = DATA.user_name || 'User';
 const msgs = new Map();      // msg_id -> latest message object
 const els  = new Map();      // msg_id -> .bubble-wrap element
 let lastTs = 0, oldestTs = 0, hasMore = DATA.has_more, total = DATA.total || 0;
@@ -361,6 +425,19 @@ function appendText(parent, text){
     else parent.appendChild(document.createTextNode(part));
   });
 }
+function snippetOf(m){
+  const t = (m.text || m.caption || '').trim();
+  if(t) return t.length > 120 ? t.slice(0, 120) + '…' : t;
+  return ({photo: '🖼️ Photo', video: '🎬 Video', document: '📄 ' + (m.file_name || 'File')})[m.type] || 'Message';
+}
+function buildQuote(r){
+  const q = el('div', 'reply-quote');
+  q.appendChild(el('span', 'rq-name', r.from === 'admin' ? 'Support' : USER_NAME));
+  q.appendChild(el('span', 'rq-text', r.text || ''));
+  q.title = 'Jump to the original message';
+  q.onclick = ev => { ev.stopPropagation(); if(r.msg_id) focusMessage(r.msg_id); };
+  return q;
+}
 function fillBubble(bubble, m){
   bubble.textContent = '';
   bubble.classList.toggle('deleted', !!m.deleted);
@@ -368,6 +445,7 @@ function fillBubble(bubble, m){
     bubble.appendChild(document.createTextNode('❌ Deleted'));
     return;
   }
+  if(m.reply_to) bubble.appendChild(buildQuote(m.reply_to));
   if(m.file_id && m.type === 'photo'){
     const p = el('div', 'media-placeholder');
     p.innerHTML = '<i class="fa-solid fa-image"></i> Load image';
@@ -398,6 +476,16 @@ function fillBubble(bubble, m){
 function buildMeta(meta, m){
   meta.textContent = '';
   if(m.broadcast) meta.appendChild(document.createTextNode('📢'));
+  if(m.from === 'admin' && m.sent_by && !m.deleted){
+    const by = el('span', 'by-tag', m.sent_by === 'super' ? '👑 Super Admin' : '🛡️ Admin');
+    by.title = 'Sent by the ' + (m.sent_by === 'super' ? 'super admin' : 'admin');
+    meta.appendChild(by);
+  }
+  if(ROLE === 'super' && m.hidden_admin && !m.deleted){
+    const hd = el('span', 'hidden-tag', '🗑️ removed by admin');
+    hd.title = 'The admin deleted this from their own view. It is still here and in the database.';
+    meta.appendChild(hd);
+  }
   if(m.deleted){
     meta.appendChild(el('span', 'del-x', '❌'));
   } else if(m.edited){
@@ -438,6 +526,8 @@ function renderBubble(m){
   const bubble = el('div', 'bubble ' + side);
   fillBubble(bubble, m);
   wrap.appendChild(bubble);
+  const ico = el('div', 'swipe-ico'); ico.innerHTML = '<i class="fa-solid fa-reply"></i>';
+  wrap.appendChild(ico);
   wrap.appendChild(el('div', 'reactions-row'));
   const meta = el('div', 'bubble-meta');
   buildMeta(meta, m);
@@ -534,7 +624,8 @@ function updateExisting(m){
   const old = msgs.get(m.msg_id), wrap = els.get(m.msg_id);
   if(!old || !wrap) return;
   const rebuild = !!old.deleted !== !!m.deleted || (old.text || '') !== (m.text || '');
-  const metaChanged = rebuild || !!old.edited !== !!m.edited || !!old.read !== !!m.read;
+  const metaChanged = rebuild || !!old.edited !== !!m.edited || !!old.read !== !!m.read ||
+                      !!old.hidden_admin !== !!m.hidden_admin;
   const rxChanged = JSON.stringify(old.reactions) !== JSON.stringify(m.reactions);
   Object.assign(old, m);
   if(rebuild) fillBubble(wrap.querySelector('.bubble'), old);
@@ -577,44 +668,67 @@ window.addEventListener('pagehide', () => clearInterval(pollTimer));
 // ── Floating action bar ──
 const bar = el('div', 'action-bar'); document.body.appendChild(bar);
 let barMid = null, hideTimer = null, shownAt = 0;
+const QUICK = 6;                      // first six reactions are always visible, the rest sit behind "+"
 function buildBar(m){
-  bar.textContent = '';
+  bar.textContent = ''; bar.classList.remove('expanded');
   const mine = (m.reactions && m.reactions.admin) || [];
-  REACTIONS.forEach(e => {
+  const mkBtn = e => {
     const b = el('button', 'emoji-btn' + (mine.includes(e) ? ' active' : ''), e);
     b.title = 'React ' + e;
     b.onclick = ev => { ev.stopPropagation(); hideBar(); reactTo(m.msg_id, e); };
-    bar.appendChild(b);
-  });
+    return b;
+  };
+  REACTIONS.slice(0, QUICK).forEach(e => bar.appendChild(mkBtn(e)));
+  if(REACTIONS.length > QUICK){
+    const more = el('button', 'emoji-btn more-btn', '➕'); more.title = 'More reactions';
+    more.onclick = ev => { ev.stopPropagation(); bar.classList.toggle('expanded'); placeBar(); };
+    bar.appendChild(more);
+  }
   bar.appendChild(el('span', 'sep'));
-  if(m.from === 'admin' && m.type === 'text'){
+  const rp = el('button', 'btn-ghost'); rp.title = 'Reply';
+  rp.innerHTML = '<i class="fa-solid fa-reply"></i>';
+  rp.onclick = ev => { ev.stopPropagation(); hideBar(); startReply(m.msg_id); };
+  bar.appendChild(rp);
+  // edit: the super admin edits any admin message, an admin only their own
+  if(m.from === 'admin' && m.type === 'text' && (ROLE === 'super' || m.sent_by === 'admin')){
     const b = el('button', 'btn-ghost'); b.title = 'Edit';
     b.innerHTML = '<i class="fa-solid fa-pen"></i>';
     b.onclick = ev => { ev.stopPropagation(); hideBar(); editMsg(m.msg_id); };
     bar.appendChild(b);
   }
-  const d = el('button', 'btn-ghost'); d.title = 'Delete'; d.style.color = 'var(--red)';
+  const d = el('button', 'btn-ghost'); d.title = ROLE === 'admin' ? 'Remove from my view' : 'Delete';
+  d.style.color = 'var(--red)';
   d.innerHTML = '<i class="fa-solid fa-trash"></i>';
   d.onclick = ev => { ev.stopPropagation(); hideBar(); deleteMsg(m.msg_id); };
   bar.appendChild(d);
+  if(REACTIONS.length > QUICK){
+    const grid = el('div', 'rx-grid');
+    REACTIONS.slice(QUICK).forEach(e => grid.appendChild(mkBtn(e)));
+    bar.appendChild(grid);
+  }
+}
+let barWrap = null;
+function placeBar(){
+  if(!barWrap) return;
+  const rect = barWrap.querySelector('.bubble').getBoundingClientRect();
+  const bw = bar.offsetWidth, bh = bar.offsetHeight;
+  let top = rect.top - bh - 6;
+  if(top < 76) top = rect.bottom + 6;
+  if(top + bh > innerHeight - 8) top = Math.max(76, innerHeight - bh - 8);
+  let left = barWrap.classList.contains('admin') ? rect.right - bw : rect.left;
+  left = Math.min(Math.max(8, left), innerWidth - bw - 8);
+  bar.style.top = top + 'px'; bar.style.left = left + 'px';
 }
 function openBar(wrap){
   const m = msgs.get(wrap.dataset.mid);
   if(!m || m.deleted) { hideBar(); return; }
   clearTimeout(hideTimer);
   buildBar(m);
-  barMid = m.msg_id; shownAt = Date.now();
+  barMid = m.msg_id; barWrap = wrap; shownAt = Date.now();
   bar.style.display = 'flex';
-  const rect = wrap.querySelector('.bubble').getBoundingClientRect();
-  const bw = bar.offsetWidth, bh = bar.offsetHeight;
-  let top = rect.top - bh - 6;
-  if(top < 76) top = rect.bottom + 6;
-  if(top + bh > innerHeight - 8) top = Math.max(76, innerHeight - bh - 8);
-  let left = wrap.classList.contains('admin') ? rect.right - bw : rect.left;
-  left = Math.min(Math.max(8, left), innerWidth - bw - 8);
-  bar.style.top = top + 'px'; bar.style.left = left + 'px';
+  placeBar();
 }
-function hideBar(){ clearTimeout(hideTimer); bar.style.display = 'none'; barMid = null; }
+function hideBar(){ clearTimeout(hideTimer); bar.style.display = 'none'; bar.classList.remove('expanded'); barMid = null; barWrap = null; }
 function scheduleHide(){ clearTimeout(hideTimer); hideTimer = setTimeout(hideBar, 260); }
 container.addEventListener('mouseover', e => {
   const wrap = e.target.closest('.bubble-wrap'); if(!wrap) return;
@@ -629,8 +743,10 @@ container.addEventListener('mouseout', e => {
 bar.addEventListener('mouseenter', () => clearTimeout(hideTimer));
 bar.addEventListener('mouseleave', scheduleHide);
 // touch screens: tap a bubble to open/close the bar
+let lastSwipe = 0;
 container.addEventListener('click', e => {
-  if(e.target.closest('a,.media-placeholder,img,video,.reaction-chip')) return;
+  if(Date.now() - lastSwipe < 500) return;
+  if(e.target.closest('a,.media-placeholder,img,video,.reaction-chip,.reply-quote')) return;
   const wrap = e.target.closest('.bubble-wrap'); if(!wrap) return;
   if(Date.now() - shownAt < 350 && barMid === wrap.dataset.mid) return;   // tap = mouseover + click
   if(barMid === wrap.dataset.mid) hideBar(); else openBar(wrap);
@@ -641,6 +757,60 @@ document.addEventListener('click', e => {
 box.addEventListener('scroll', hideBar);
 window.addEventListener('resize', hideBar);
 document.addEventListener('keydown', e => { if(e.key === 'Escape') hideBar(); });
+
+// ── Swipe a message to the LEFT to reply (touch screens) ──
+// On desktop use the ↩ button in the hover bar.
+const SWIPE_TRIGGER = 62, SWIPE_MAX = 96;
+let sw = null;
+container.addEventListener('touchstart', e => {
+  if(e.touches.length !== 1){ sw = null; return; }
+  const wrap = e.target.closest('.bubble-wrap'); if(!wrap) return;
+  const m = msgs.get(wrap.dataset.mid); if(!m || m.deleted) return;
+  const t = e.touches[0];
+  sw = {wrap, x: t.clientX, y: t.clientY, dx: 0, locked: false, fired: false};
+}, {passive: true});
+container.addEventListener('touchmove', e => {
+  if(!sw) return;
+  const t = e.touches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y;
+  if(!sw.locked){
+    if(Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)){ sw = null; return; }   // it's a scroll
+    if(dx < -10 && Math.abs(dx) > Math.abs(dy)){ sw.locked = true; sw.wrap.classList.add('swiping'); hideBar(); }
+    else return;
+  }
+  sw.dx = Math.max(-SWIPE_MAX, Math.min(0, dx));            // leftwards only
+  const progress = Math.min(1, Math.abs(sw.dx) / SWIPE_TRIGGER);
+  sw.wrap.style.transform = 'translateX(' + sw.dx + 'px)';
+  sw.wrap.style.setProperty('--sw', progress.toFixed(2));
+  const ready = Math.abs(sw.dx) >= SWIPE_TRIGGER;
+  sw.wrap.classList.toggle('swipe-ready', ready);
+  if(ready && !sw.fired){ sw.fired = true; try{ navigator.vibrate && navigator.vibrate(12); }catch(_){} }
+}, {passive: true});
+function endSwipe(cancel){
+  if(!sw) return;
+  const s_ = sw; sw = null;
+  if(!s_.locked) return;
+  lastSwipe = Date.now();
+  s_.wrap.classList.remove('swiping');
+  s_.wrap.classList.add('swipe-back');
+  s_.wrap.style.transform = ''; s_.wrap.style.setProperty('--sw', 0);
+  setTimeout(() => s_.wrap.classList.remove('swipe-back', 'swipe-ready'), 230);
+  if(!cancel && Math.abs(s_.dx) >= SWIPE_TRIGGER) startReply(s_.wrap.dataset.mid);
+}
+container.addEventListener('touchend', () => endSwipe(false));
+container.addEventListener('touchcancel', () => endSwipe(true));
+
+// ── Reply state (preview bar above the composer) ──
+let replyTo = null;
+function startReply(mid){
+  const m = msgs.get(mid); if(!m || m.deleted) return;
+  if(document.querySelector('.blocked-banner')){ toast('User is blocked — unblock first', 'err'); return; }
+  replyTo = {mid, from: m.from};
+  $('rbName').textContent = 'Replying to ' + (m.from === 'admin' ? 'Support' : USER_NAME);
+  $('rbText').textContent = snippetOf(m);
+  $('replyBar').classList.add('open');
+  $('msgInput').focus();
+}
+window.cancelReply = function(){ replyTo = null; $('replyBar').classList.remove('open'); };
 
 // ── Reactions ──
 async function reactTo(mid, emoji){
@@ -680,14 +850,17 @@ window.submitEdit = async function(){
   }catch(e){ toast('Error: ' + e.message, 'err'); }
 };
 async function deleteMsg(mid){
-  if(!confirm('Delete this message? It stays in the database, but shows as deleted.')) return;
+  const ask = ROLE === 'admin'
+    ? 'Remove this message from YOUR view?\n\nIt is not deleted from the database, the super admin still sees it, and the customer keeps it on Telegram.'
+    : 'Delete this message? It stays in the database, but shows as deleted.';
+  if(!confirm(ask)) return;
   try{
     const d = await api(`/chat/${CID}/message/${encodeURIComponent(mid)}/delete`, {method: 'POST'});
     if(d.ok){
       const m = msgs.get(mid);
       if(m){ m.deleted = true; const w = els.get(mid);
              fillBubble(w.querySelector('.bubble'), m); buildMeta(w.querySelector('.bubble-meta'), m); }
-      toast('Message deleted', 'ok');
+      toast(ROLE === 'admin' ? 'Removed from your view' : 'Message deleted', 'ok');
       if(d.warning) toast(d.warning, 'info', 6000);
     } else toast(d.error || 'Failed', 'err');
   }catch(e){ toast('Error: ' + e.message, 'err'); }
@@ -754,7 +927,10 @@ window.searchStep = function(dir){
 };
 async function gotoMatch(pos){
   matchPos = pos; updateSearchUi();
-  const id = matches[matches.length - 1 - pos].msg_id;
+  await focusMessage(matches[matches.length - 1 - pos].msg_id);
+}
+// scroll to a message (loading it first when it is not on screen) and flash it
+async function focusMessage(id){
   if(!els.has(id)){
     try{
       const d = await api(`/chat/${CID}/messages?around=${encodeURIComponent(id)}`);
@@ -779,7 +955,10 @@ function resetList(list, more){
 
 // ── Composer ──
 window.autoResize = function(e){ e.style.height = 'auto'; e.style.height = Math.min(e.scrollHeight, 150) + 'px'; };
-window.handleKey = function(e){ if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); } };
+window.handleKey = function(e){
+  if(e.key === 'Escape' && replyTo){ cancelReply(); return; }
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); }
+};
 function fmtSize(b){
   if(b < 1024) return b + ' B';
   if(b < 1048576) return (b / 1024).toFixed(1) + ' KB';
@@ -853,14 +1032,17 @@ window.sendMsg = async function(){
     if(selectedFile){
       const fd = new FormData();
       fd.append('text', text); fd.append('file', selectedFile, selectedFile.name);
+      if(replyTo) fd.append('reply_to', replyTo.mid);
       d = await uploadWithProgress(`/chat/${CID}/send_file`, fd, setProgress);
       setProgress(null);
     } else {
       const fd = new FormData(); fd.append('text', text);
+      if(replyTo) fd.append('reply_to', replyTo.mid);
       d = await api(`/chat/${CID}/send`, {method: 'POST', body: fd});
     }
     if(d.ok){
       if(selectedFile) clearFile();
+      cancelReply();
       input.value = ''; autoResize(input);
       appendMessage(d.message, false);
       toast('Sent', 'ok');
@@ -871,6 +1053,50 @@ window.sendMsg = async function(){
   isSending = false; $('sendBtn').disabled = false;
   input.focus();
 };
+
+// ── Emoji picker for the message box ──
+const EMOJI_SETS = [
+  ['😀', 'Smileys', '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖'],
+  ['👍', 'Hands', '👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 ✍️ 💪 👏 🙌 👐 🤲 🫶 🫡 🫰 🤌 🤏 👊 ✊ 🤛 🤜 🙇 🙋 🤷 🤦 💁 🙆 🙅 👀 🧠 👣'],
+  ['❤️', 'Hearts & symbols', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 ✅ ❌ ⚠️ ❓ ❗ ✨ ⭐ 🌟 💫 🔥 ⚡ 💥 💢 💤 🎉 🎊 🏆 🥇 🎯 🔔 🆗 🆒 🆕 🔴 🟢 🔵 🟡 ➕ ➖ ✔️ ➡️ ⬅️ ⬆️ ⬇️ 🔁 🔄'],
+  ['💡', 'Objects', '📱 💻 🖥️ ⌨️ 🖱️ 📷 🎥 📞 ☎️ 📧 ✉️ 📎 📌 🔗 🔒 🔓 🔑 🛠️ ⚙️ 🧰 💡 🔋 📶 🌐 🧾 📄 📁 📅 ⏰ ⌛ 💰 💳 🎁 🛒 🚀 🚗 ✈️ 🏠 📦 📝 📊 📈 🔍 🎧 🎮 📚 🗂️'],
+  ['🐶', 'Nature & food', '🐶 🐱 🦁 🐼 🦄 🐢 🐍 🦋 🐳 🐧 🦊 🐵 🌸 🌹 🌻 🌈 ☀️ 🌙 ☁️ 🌧️ ❄️ 🍎 🍌 🍓 🍉 🍕 🍔 🍟 🌭 🍿 🍩 🍪 🎂 ☕ 🍵 🥤 🍺 🍾 🥂']
+];
+(function buildEmojiPicker(){
+  const tabs = $('emojiTabs'), grid = $('emojiGrid');
+  function show(i){
+    [...tabs.children].forEach((b, k) => b.classList.toggle('active', k === i));
+    grid.textContent = '';
+    EMOJI_SETS[i][2].split(' ').forEach(e => {
+      const b = el('button', '', e); b.type = 'button';
+      b.onclick = () => insertEmoji(e);
+      grid.appendChild(b);
+    });
+    grid.scrollTop = 0;
+  }
+  EMOJI_SETS.forEach((set, i) => {
+    const b = el('button', '', set[0]); b.type = 'button'; b.title = set[1];
+    b.onclick = () => show(i);
+    tabs.appendChild(b);
+  });
+  show(0);
+})();
+function insertEmoji(e){
+  const t = $('msgInput');
+  const s0 = t.selectionStart == null ? t.value.length : t.selectionStart;
+  const e0 = t.selectionEnd == null ? s0 : t.selectionEnd;
+  t.value = t.value.slice(0, s0) + e + t.value.slice(e0);
+  const pos = s0 + e.length;
+  t.focus(); t.setSelectionRange(pos, pos);
+  autoResize(t);
+}
+window.toggleEmoji = function(ev){
+  if(ev) ev.stopPropagation();
+  $('emojiPop').classList.toggle('open');
+};
+document.addEventListener('click', ev => {
+  if(!ev.target.closest('#emojiPop') && !ev.target.closest('#emojiBtn')) $('emojiPop').classList.remove('open');
+});
 })();
 </script>
 {% endblock %}
