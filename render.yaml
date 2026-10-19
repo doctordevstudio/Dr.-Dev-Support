@@ -10,11 +10,17 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: SUPER_ADMIN_CHAT_ID
+        sync: false
       - key: ADMIN_CHAT_ID
         sync: false
       - key: FIREBASE_URL
         sync: false
       - key: FIREBASE_SECRET
+        sync: false
+      - key: SUPER_ADMIN_USERNAME
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
         sync: false
       - key: ADMIN_USERNAME
         sync: false
