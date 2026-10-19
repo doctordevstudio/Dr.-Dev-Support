@@ -14,6 +14,12 @@ Design rules
   freeze once the database grew).
 * `log_event()` is fire-and-forget (background thread) so logging never slows
   down a Telegram handler or an HTTP request.
+* TWO audit logs:  `logs`        = Super Admin log (super admin's own actions + system events)
+                   `logs_admin`  = Admin log       (admin's own actions + system events)
+  System events (incoming messages, bot errors, …) are written to both, an
+  admin's actions only to the admin log, the super admin's only to the super
+  log — so the admin can never see anything the super admin did.
+* IP addresses are never written to the logs.
 """
 import datetime
 import queue
@@ -227,14 +233,45 @@ def chat_index(max_age: float = 3.0) -> dict:
 
 
 # ── Logging (fire-and-forget) ────────────────────────────────────────────────
+LOG_NODE = {"super": "logs", "admin": "logs_admin"}
 _log_q: "queue.Queue" = queue.Queue(maxsize=5000)
+
+# Who is performing the current action? Set per request (Flask) / per admin
+# command (Telegram) / per background broadcast job. Thread-local, so one
+# admin's actions can never be attributed to the other.
+_ctx = threading.local()
+
+
+def set_actor(role):
+    """role: 'super' | 'admin' | None (system)."""
+    _ctx.actor = role if role in ("super", "admin") else None
+
+
+def get_actor():
+    return getattr(_ctx, "actor", None)
+
+
+class acting_as:
+    """with fb.acting_as('admin'): ...  — restores the previous actor afterwards."""
+
+    def __init__(self, role):
+        self.role = role
+
+    def __enter__(self):
+        self.prev = get_actor()
+        set_actor(self.role)
+        return self
+
+    def __exit__(self, *exc):
+        set_actor(self.prev)
+        return False
 
 
 def _log_worker():
     while True:
-        entry = _log_q.get()
+        node, entry = _log_q.get()
         try:
-            post("logs", entry)
+            post(node, entry)
         except Exception as e:
             print(f"[LOG] {e}")
 
@@ -242,23 +279,43 @@ def _log_worker():
 threading.Thread(target=_log_worker, daemon=True, name="fb-logger").start()
 
 
-def log_event(event_type: str, **fields):
+def log_event(event_type: str, scope=None, actor=None, **fields):
+    """Record an event.
+
+    actor  who did it: 'super' | 'admin' | 'system'. Defaults to the current
+           actor of this thread, or 'system'.
+    scope  which log(s) get it: 'super' | 'admin' | 'both'. Defaults to the
+           actor's own log for super/admin actions, 'both' for system events.
+    """
     try:
+        fields.pop("ip", None)                     # never store IP addresses
+        who = actor or get_actor() or "system"
+        if scope is None:
+            scope = who if who in ("super", "admin") else "both"
         entry = {
             "type": event_type,
             "time": _now_ist_str(),
             "ts": int(time.time()),
+            "actor": who,
             **fields,
         }
-        _log_q.put_nowait(entry)
+        nodes = ["logs", "logs_admin"] if scope == "both" else [LOG_NODE.get(scope, "logs")]
+        for node in nodes:
+            _log_q.put_nowait((node, dict(entry)))
     except Exception as e:
         print(f"[LOG] {event_type} -> {e}")
 
 
-def get_logs(limit: int = 500) -> list:
-    ok, data = query_by_ts("logs", limit_last=limit)
+def get_logs(scope: str = "super", limit: int = 500) -> list:
+    """Entries of ONE log ('super' or 'admin'), newest first, without IP addresses."""
+    node = LOG_NODE.get(scope, "logs")
+    ok, data = query_by_ts(node, limit_last=limit)
     if not ok:
-        data = get("logs") or {}
-    items = [v for v in (data or {}).values() if isinstance(v, dict)]
+        data = get(node) or {}
+    items = []
+    for v in (data or {}).values():
+        if isinstance(v, dict):
+            v = {k: x for k, x in v.items() if k != "ip"}      # also hides old entries
+            items.append(v)
     items.sort(key=lambda e: e.get("ts", 0), reverse=True)
     return items[:limit]
