@@ -172,6 +172,12 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
 
 .reactions-row{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
 .reactions-row:empty{display:none}
+.msg-reply-row{display:flex;margin-top:3px}
+.bubble-wrap.admin .msg-reply-row{justify-content:flex-end}
+.msg-reply-btn{background:none;border:none;color:var(--muted);font-size:.72rem;font-weight:600;cursor:pointer;
+  padding:3px 9px;border-radius:99px;font-family:inherit;display:inline-flex;align-items:center;gap:5px;transition:all .15s}
+.msg-reply-btn:hover{background:rgba(var(--accent-rgb),.14);color:var(--accent)}
+.bubble-wrap.is-deleted .msg-reply-row{display:none}
 .bubble-wrap.admin .reactions-row{justify-content:flex-end}
 .reaction-chip{
   display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:99px;
@@ -532,6 +538,13 @@ function renderBubble(m){
   const meta = el('div', 'bubble-meta');
   buildMeta(meta, m);
   wrap.appendChild(meta);
+  // visible Reply button below every message: click -> type your message -> it is sent as a reply
+  const rrow = el('div', 'msg-reply-row');
+  const rbtn = el('button', 'msg-reply-btn'); rbtn.type = 'button';
+  rbtn.innerHTML = '<i class="fa-solid fa-reply"></i> Reply';
+  rbtn.onclick = ev => { ev.stopPropagation(); startReply(m.msg_id, true); };
+  rrow.appendChild(rbtn); wrap.appendChild(rrow);
+  wrap.classList.toggle('is-deleted', !!m.deleted);
   msgs.set(m.msg_id, m); els.set(m.msg_id, wrap);
   renderReactions(m.msg_id, m.reactions);
   if(m.ts && m.ts > lastTs) lastTs = m.ts;
@@ -628,6 +641,7 @@ function updateExisting(m){
                       !!old.hidden_admin !== !!m.hidden_admin;
   const rxChanged = JSON.stringify(old.reactions) !== JSON.stringify(m.reactions);
   Object.assign(old, m);
+  wrap.classList.toggle('is-deleted', !!old.deleted);
   if(rebuild) fillBubble(wrap.querySelector('.bubble'), old);
   if(metaChanged) buildMeta(wrap.querySelector('.bubble-meta'), old);
   if(rxChanged) renderReactions(m.msg_id, old.reactions);
@@ -801,16 +815,23 @@ container.addEventListener('touchcancel', () => endSwipe(true));
 
 // ── Reply state (preview bar above the composer) ──
 let replyTo = null;
-function startReply(mid){
+const DEFAULT_PH = $('msgInput').placeholder;
+function startReply(mid, ask){
   const m = msgs.get(mid); if(!m || m.deleted) return;
   if(document.querySelector('.blocked-banner')){ toast('User is blocked — unblock first', 'err'); return; }
   replyTo = {mid, from: m.from};
   $('rbName').textContent = 'Replying to ' + (m.from === 'admin' ? 'Support' : USER_NAME);
   $('rbText').textContent = snippetOf(m);
   $('replyBar').classList.add('open');
-  $('msgInput').focus();
+  const inp = $('msgInput');
+  inp.placeholder = '✍️ Type your reply, then press Send…';
+  inp.focus();
+  if(ask){ inp.scrollIntoView({block: 'nearest', behavior: 'smooth'}); toast('Type your reply and press Send', 'ok'); }
 }
-window.cancelReply = function(){ replyTo = null; $('replyBar').classList.remove('open'); };
+window.cancelReply = function(){
+  replyTo = null; $('replyBar').classList.remove('open');
+  $('msgInput').placeholder = DEFAULT_PH;
+};
 
 // ── Reactions ──
 async function reactTo(mid, emoji){
