@@ -22,6 +22,10 @@ Notes
 * Reactions from the bot: an admin who reacts to a notification in Telegram puts that
   reaction on the customer's message (the notification -> message mapping is kept in
   Firebase under `admin_notify/<admin chat>/<notification id>`).
+* Menu: every admin chat gets the Telegram command menu (Send, Broadcast, Help, Cancel;
+  the ADMIN role does not see / cannot use Broadcast). `/send` asks for the chat id,
+  then for the message / image / video / file. Every notification has a "↩️ Reply" button
+  that asks for the answer and sends it as a Telegram reply.
 * An ADMIN "deleting" a message only hides it from the admin's own view
   (`hidden_admin`). The super admin still sees it, the database keeps it, and
   nothing is removed from the customer's Telegram chat.
@@ -281,10 +285,11 @@ def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
                      error="Bot not initialized (BOT_TOKEN missing)")
         return
 
-    mk = None
+    mk = types.InlineKeyboardMarkup()
     if chat_link:
-        mk = types.InlineKeyboardMarkup()
         mk.add(types.InlineKeyboardButton("🖥️ Open in Admin Panel", url=chat_link))
+    # tap -> the bot asks for your message and sends it to the customer as a reply
+    mk.add(types.InlineKeyboardButton("↩️ Reply", callback_data=f"rp:{chat_id}:{msg_key or 0}"))
 
     for admin_id in ids:
         sent, last_err, sent_msg = False, "", None
@@ -414,6 +419,44 @@ def send_admin_reaction_notify(chat_id, user_name, username, emojis, target_text
     _send_to_admins(html_text, plain_text, chat_id, "reaction", _panel_link(chat_id))
 
 
+def send_admin_given_reaction_notify(chat_id: str, emoji: str, msg: dict, actor: str, shown: bool = True):
+    """An admin reacted (panel or bot): tell BOTH admin chats. The customer sees the emoji on
+    their own Telegram message (set_message_reaction)."""
+    if not config.REACTION_NOTIFY or not emoji:
+        return
+    meta = fb.chat_index().get(chat_id)
+    if not isinstance(meta, dict) or not meta:
+        meta = fb.get(f"support/{chat_id}/meta") or {}
+    name = meta.get("user_name") or chat_id
+    un = meta.get("username") or ""
+    who = ROLE_LABEL.get(actor, "Admin")
+    icon = "👑" if actor == "super" else "🛡️"
+    target = ((msg or {}).get("text") or (msg or {}).get("caption") or "").strip() or "[media]"
+    target = (target[:120] + "…") if len(target) > 120 else target
+    uname_html = ("@" + h(un)) if un else "—"
+    uname_plain = ("@" + un) if un else "—"
+    seen_html = "👀 <i>The customer sees this reaction on their message.</i>" if shown else \
+                "⚠️ <i>Saved in the panel only — Telegram refused the reaction.</i>"
+    seen_plain = "The customer sees this reaction on their message." if shown else \
+                 "Saved in the panel only — Telegram refused the reaction."
+    html_text = (
+        f"{h(emoji)} <b>Reaction given</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{icon} <b>By:</b> {who}\n"
+        f"👤 <b>To:</b> {h(name)}\n"
+        f"🔗 <b>Username:</b> {uname_html}\n"
+        f"🆔 <b>Chat ID:</b> <code>{h(str(chat_id))}</code>\n"
+        f"↪️ <b>On message:</b> {h(target)}\n"
+        f"🕐 <b>Time (IST):</b> {now_str()}\n"
+        f"{seen_html}"
+    )
+    plain_text = (
+        f"{emoji} Reaction given\nBy: {who}\nTo: {name}\nUsername: {uname_plain}\n"
+        f"Chat ID: {chat_id}\nOn message: {target}\nTime (IST): {now_str()}\n{seen_plain}"
+    )
+    _send_to_admins(html_text, plain_text, chat_id, "reaction_given", _panel_link(chat_id))
+
+
 def send_admin_edit_notify(chat_id, user_name, username, old_text, new_text):
     if not settings.load()["notify_edit"]:
         return
@@ -511,31 +554,83 @@ STATE_TTL = 600
 _FORMAT_ENTITIES = {"bold", "italic", "underline", "strikethrough", "code", "pre",
                     "text_link", "spoiler", "blockquote", "expandable_blockquote"}
 
-ADMIN_HELP = (
+_HELP_TOP = (
     "🛠 <b>Admin help</b>\n"
     "━━━━━━━━━━━━━━━━━━━━━\n"
     "↩️ <b>Quick reply</b>\n"
-    "Swipe / reply to a <b>new-message notification</b> and type your answer (or send an "
-    "image / video / file) — the customer gets it as a Telegram reply to <i>that</i> message.\n"
+    "Tap <b>↩️ Reply</b> under a notification (or swipe / reply to it) and send your answer — "
+    "text, image, video or file. The customer gets it as a Telegram reply to <i>that</i> message.\n"
     "😍 <b>React</b> to a notification with any Telegram reaction — it is put on the customer's "
-    "message (remove your reaction to remove it there).\n\n"
-    "💬 <b>Reply to a user</b>\n"
+    "message (remove your reaction to remove it there). Both admins are told about it.\n\n"
+    "💬 <b>Write to a user</b>\n"
+    "<code>/send</code>\n"
+    "→ I ask for the <b>Chat ID</b>, then for the <b>message / image / video / file</b>.\n"
     "<code>/send chat_id your message</code>\n"
-    "→ sends the text to that user.\n"
+    "→ sends the text straight away.\n"
     "<code>/send chat_id</code>\n"
-    "→ then send an <b>image / video / file</b> (caption optional) and it is delivered to that user.\n\n"
+    "→ then send a message, <b>image / video / file</b> (caption optional).\n\n"
+)
+_HELP_BROADCAST = (
     "📢 <b>Broadcast to every user</b>\n"
     "<code>/broadcast your text</code>\n"
     "→ sends the text to all users.\n"
     "<code>/broadcast</code>\n"
     "→ then send an <b>image / video / file</b> (caption optional) to broadcast it.\n\n"
+)
+_HELP_END = (
     "↩️ <code>/cancel</code> — abort the current action\n"
     "❔ <code>/help</code> — show this help\n\n"
-    "💡 The chat_id is shown in every new-message notification (tap it to copy). "
-    "HTML such as <code>&lt;b&gt;bold&lt;/b&gt;</code> works in broadcasts. "
+    "💡 The chat_id is shown in every new-message notification (tap it to copy)."
+)
+_HELP_BROADCAST_NOTE = (
+    " HTML such as <code>&lt;b&gt;bold&lt;/b&gt;</code> works in broadcasts. "
     "Every broadcast — including the ones started here — appears in the admin panel with "
     "its successful / failed counts."
 )
+
+
+def admin_help(role: str = "super") -> str:
+    """The ADMIN role never sees (or can use) /broadcast in the bot."""
+    if role == "super":
+        return _HELP_TOP + _HELP_BROADCAST + _HELP_END + _HELP_BROADCAST_NOTE
+    return _HELP_TOP + _HELP_END
+
+
+def admin_commands_for(role: str) -> list:
+    cmds = [("send", "📤 Send a message to a user"), ("help", "❔ Show help"),
+            ("cancel", "❌ Cancel the current action")]
+    if role == "super":
+        cmds.insert(1, ("broadcast", "📢 Broadcast to all users"))
+    return cmds
+
+
+def _menu_markup(role: str):
+    mk = types.InlineKeyboardMarkup()
+    row = [types.InlineKeyboardButton("📤 Send", callback_data="mn:send")]
+    if role == "super":
+        row.append(types.InlineKeyboardButton("📢 Broadcast", callback_data="mn:broadcast"))
+    mk.row(*row)
+    mk.row(types.InlineKeyboardButton("❔ Help", callback_data="mn:help"),
+           types.InlineKeyboardButton("❌ Cancel", callback_data="mn:cancel"))
+    return mk
+
+
+def set_admin_menus():
+    """Telegram's "Menu" button: every admin chat gets its own command list."""
+    if not bot:
+        return
+    for admin_id in config.ADMIN_CHAT_IDS():
+        role = config.role_of_chat(admin_id)
+        try:
+            cmds = [types.BotCommand(c, d) for c, d in admin_commands_for(role)]
+            bot.set_my_commands(cmds, scope=types.BotCommandScopeChat(int(admin_id)))
+            try:
+                bot.set_chat_menu_button(int(admin_id), types.MenuButtonCommands())
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[MENU] {admin_id}: {e}")
+
 
 USER_HELP = (
     "👋 <b>How to use this bot</b>\n"
@@ -701,6 +796,26 @@ def _admin_broadcast_flow(reply_to, aid, kind, text, fmt, file_id="", file_name=
                      parse_mode="HTML", reply_markup=mk)
 
 
+def _ask_message_text(meta, cid: str) -> str:
+    return (f"✍️ Now send your <b>message, image, video or file</b> for "
+            f"<b>{h((meta or {}).get('user_name') or cid)}</b> (<code>{h(cid)}</code>).\n"
+            "Add a caption if you like. /cancel to abort.")
+
+
+def _start_send_flow(reply, aid):
+    """/send (or the Send menu button): ask for the chat id first."""
+    _set_state(aid, action="send_cid")
+    send_msg(reply, "📤 <b>Send a message</b>\n"
+                    "Send me the <b>Chat ID</b> of the customer (copy it from a notification "
+                    "or the admin panel).\n/cancel to abort.")
+
+
+def _start_broadcast_flow(reply, aid):
+    _set_state(aid, action="broadcast")
+    send_msg(reply, "📎 Send the <b>image, video or file</b> you want to broadcast "
+                    "(caption optional) — or just type the text. /cancel to abort.")
+
+
 _unsupported_seen = {}
 
 
@@ -722,18 +837,22 @@ if bot:
         cmd = pieces[0].lstrip("/").split("@")[0].lower()
         rest = pieces[1] if len(pieces) > 1 else ""
 
+        role = config.role_of_chat(msg.from_user.id) or config.role_of_chat(reply)
         if cmd in ("start", "help"):
             _clear_state(aid)
-            send_msg(reply, ADMIN_HELP)
+            bot.send_message(reply, admin_help(role), parse_mode="HTML", reply_markup=_menu_markup(role))
         elif cmd == "cancel":
             had = _get_state(aid) is not None
             _clear_state(aid)
             send_msg(reply, "↩️ Cancelled." if had else "Nothing to cancel.")
         elif cmd == "send":
             parts = rest.strip().split(None, 1)
-            if not parts or not re.fullmatch(r"-?\d+", parts[0]):
-                send_msg(reply, "Usage:\n<code>/send chat_id your message</code>\n"
-                                "<code>/send chat_id</code> → then send an image, video or file")
+            if not parts:
+                _start_send_flow(reply, aid)                  # menu / bare /send: ask for the chat id
+                return
+            if not re.fullmatch(r"-?\d+", parts[0]):
+                send_msg(reply, "That doesn't look like a Chat ID. Send /send and I'll ask for it, or use:\n"
+                                "<code>/send chat_id your message</code>")
                 return
             cid = parts[0]
             body = parts[1].strip() if len(parts) > 1 else ""
@@ -746,18 +865,17 @@ if bot:
                 _admin_deliver(reply, cid, text=body)
             else:
                 _set_state(aid, action="send", cid=cid)
-                send_msg(reply, f"📎 Now send the <b>image, video or file</b> for "
-                                f"<b>{h(meta.get('user_name') or cid)}</b> (<code>{h(cid)}</code>).\n"
-                                "Add a caption if you like. /cancel to abort.")
+                send_msg(reply, _ask_message_text(meta, cid))
         elif cmd == "broadcast":
+            if role != "super":                               # hidden for the ADMIN role
+                send_msg(reply, "Unknown command. Send /help to see what you can do.")
+                return
             body = rest.strip()
             if body:
                 _clear_state(aid)
                 _admin_broadcast_flow(reply, aid, "text", body, bc.detect_format(body))
             else:
-                _set_state(aid, action="broadcast")
-                send_msg(reply, "📎 Send the <b>image, video or file</b> you want to broadcast "
-                                "(caption optional) — or just type the text. /cancel to abort.")
+                _start_broadcast_flow(reply, aid)
 
     @bot.message_handler(func=_admin_only, content_types=["text", "photo", "video", "document"])
     @_as_admin
@@ -781,15 +899,35 @@ if bot:
             send_msg(reply, "ℹ️ Nothing to do right now. Send /help to see the admin commands, "
                             "or reply to a customer notification to answer it.")
             return
+        if st["action"] == "send_cid":
+            # step 1 of /send: the admin answers with the customer's chat id
+            txt = (msg.text or "").strip() if msg.content_type == "text" else ""
+            m_ = re.fullmatch(r"-?\d+", txt) or re.search(r"Chat ID:\s*(-?\d+)", txt)
+            if not m_:
+                _set_state(aid, action="send_cid")
+                send_msg(reply, "❌ Please send only the numeric <b>Chat ID</b> (or /cancel).")
+                return
+            cid = m_.group(1) if m_.lastindex else m_.group(0)
+            meta, err = _target_chat(cid)
+            if err:
+                _set_state(aid, action="send_cid")
+                send_msg(reply, err + "\nSend another Chat ID or /cancel.")
+                return
+            _set_state(aid, action="send", cid=cid)
+            send_msg(reply, _ask_message_text(meta, cid))
+            return
         _clear_state(aid)
         media = _extract_media(msg)
         if st["action"] == "send":
+            rkey = st.get("reply_key", "")
             if media:
                 kind, fid, fname, cap = media
-                _admin_deliver(reply, st["cid"], media=(kind, fid, fname, cap))
+                _admin_deliver(reply, st["cid"], media=(kind, fid, fname, cap), reply_key=rkey)
             else:
-                _admin_deliver(reply, st["cid"], text=msg.text or "")
+                _admin_deliver(reply, st["cid"], text=msg.text or "", reply_key=rkey)
         elif st["action"] == "broadcast":
+            if config.role_of_chat(msg.from_user.id) != "super":
+                return
             if media:
                 kind, fid, fname, _cap = media
                 cap, fmt = _admin_text_and_format(msg, caption=True)
@@ -798,11 +936,62 @@ if bot:
                 txt, fmt = _admin_text_and_format(msg)
                 _admin_broadcast_flow(reply, aid, "text", txt, fmt)
 
+    @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("rp:"))
+    @_as_admin
+    def on_reply_button(call):
+        """"↩️ Reply" under a notification: ask for the message, then send it as a reply."""
+        try:
+            if not is_admin(call.from_user.id):
+                bot.answer_callback_query(call.id, "Not allowed", show_alert=True)
+                return
+            _, cid, key = call.data.split(":", 2)
+            key = "" if key in ("", "0") else key
+            meta, err = _target_chat(cid)
+            if err:
+                bot.answer_callback_query(call.id)
+                send_msg(call.message.chat.id, err)
+                return
+            aid = str(call.from_user.id)
+            _set_state(aid, action="send", cid=cid, reply_key=key)
+            bot.answer_callback_query(call.id, "Type your reply now")
+            bot.send_message(call.message.chat.id, _ask_message_text(meta, cid), parse_mode="HTML",
+                             **_reply_kw(call.message.message_id))
+        except Exception as e:
+            print(f"[REPLY-BTN] {e}")
+
+    @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("mn:"))
+    @_as_admin
+    def on_menu_button(call):
+        try:
+            if not is_admin(call.from_user.id):
+                bot.answer_callback_query(call.id, "Not allowed", show_alert=True)
+                return
+            aid, chat_id = str(call.from_user.id), call.message.chat.id
+            role = config.role_of_chat(call.from_user.id)
+            action = call.data.split(":", 1)[1]
+            bot.answer_callback_query(call.id)
+            if action == "send":
+                _start_send_flow(chat_id, aid)
+            elif action == "broadcast":
+                if role == "super":
+                    _start_broadcast_flow(chat_id, aid)
+                else:                                          # hidden for the ADMIN role
+                    send_msg(chat_id, "Unknown command. Send /help to see what you can do.")
+            elif action == "cancel":
+                had = _get_state(aid) is not None
+                _clear_state(aid)
+                send_msg(chat_id, "↩️ Cancelled." if had else "Nothing to cancel.")
+            else:
+                _clear_state(aid)
+                bot.send_message(chat_id, admin_help(role), parse_mode="HTML", reply_markup=_menu_markup(role))
+        except Exception as e:
+            print(f"[MENU-BTN] {e}")
+
     @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("bc:"))
     @_as_admin
     def on_broadcast_confirm(call):
         try:
-            if not is_admin(call.from_user.id):
+            if config.role_of_chat(call.from_user.id) != "super":
                 bot.answer_callback_query(call.id, "Not allowed", show_alert=True)
                 return
             _, ans, token = call.data.split(":", 2)
@@ -1338,6 +1527,12 @@ def set_reaction(chat_id: str, mid: str, emoji: str = "", remove: bool = False,
         return {"error": "Could not save the reaction to Firebase"}
     fb.log_event("message_reaction", chat_id=chat_id, msg_id=mid, by="admin",
                  emoji=" ".join(new) or "(removed)")
+    if new:      # tell the super admin AND the admin (in the background — Telegram calls are slow)
+        threading.Thread(
+            target=send_admin_given_reaction_notify,
+            args=(chat_id, new[0], msg, fb.get_actor() or "admin", not warning),
+            daemon=True, name="react-notify",
+        ).start()
     res = {"ok": True, "reactions": view}
     if warning:
         res["warning"] = warning
@@ -1368,6 +1563,7 @@ def run_bot():
         return
     print("Support bot polling started.")
     fb.log_event("bot_started")
+    set_admin_menus()
     while True:
         try:
             # skip_pending=False: messages sent while the free dyno was asleep
