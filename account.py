@@ -368,6 +368,7 @@ async def _on_new(event):
             return
         info = {
             "uid": user.id, "name": _full_name(user), "username": _username_of(user),
+            "hash": getattr(user, "access_hash", None),
             "out": bool(msg.out), "id": msg.id, "ts": int(msg.date.timestamp()),
             "time": _stamp(msg.date), "text": msg.message or "",
             "reply_id": msg.reply_to.reply_to_msg_id if msg.reply_to else None,
@@ -440,6 +441,8 @@ def _process_message(info: dict, imported: bool = False, catchup: bool = False):
                             "type": (target or {}).get("type", "text"),
                             "text": tg._snippet(target or {"text": "Message"})}
     extra = {f"acct_idx/{info['id']}": cid}
+    if info.get("hash") and not meta.get("ah"):
+        extra[f"support/{cid}/meta/ah"] = info["hash"]
     if not out:
         extra[f"support/{cid}/meta/uid"] = uid
         # username / name change?  (only the super admin is told)
@@ -642,6 +645,7 @@ def _import_history(max_dialogs: int = 60, per_chat: int = 25):
 
 def _info_of(msg, user) -> dict:
     info = {"uid": user.id, "name": _full_name(user), "username": _username_of(user),
+            "hash": getattr(user, "access_hash", None),
             "out": bool(msg.out), "id": msg.id, "ts": int(msg.date.timestamp()),
             "time": _stamp(msg.date), "text": msg.message or "",
             "reply_id": msg.reply_to.reply_to_msg_id if msg.reply_to else None}
@@ -741,11 +745,18 @@ def _need():
 
 
 async def _peer(uid: int):
+    """Input peer of a user. Telethon only knows users it has seen in this run, so when the cache
+    misses we use the access hash stored with the chat — no dialog scan needed."""
     try:
         return await _client.get_input_entity(uid)
     except ValueError:
-        await _client.get_dialogs(limit=200)
-        return await _client.get_input_entity(uid)
+        pass
+    loop = asyncio.get_event_loop()
+    ah = (await loop.run_in_executor(None, _tg().get_meta, cid_of(uid))).get("ah")
+    if ah:
+        return ttypes.InputPeerUser(user_id=int(uid), access_hash=int(ah))
+    await _client.get_dialogs(limit=300)
+    return await _client.get_input_entity(uid)
 
 
 def _res(m) -> dict:
@@ -811,19 +822,32 @@ def react(uid: int, msg_id: int, emoji: str):
 
 
 def download(uid: int, msg_id: int):
-    """(bytes, mime, filename) of one message's media — streamed to the panel on demand."""
+    """(bytes, mime, filename) of one message's media — fetched through the account on demand."""
     _need()
+    if not msg_id:
+        raise AccountError("This message has no Telegram id")
 
     async def go():
         m = await _client.get_messages(await _peer(uid), ids=int(msg_id))
+        if isinstance(m, list):
+            m = m[0] if m else None
         if not m or not m.media:
-            raise AccountError("File not found")
+            raise AccountError("The file no longer exists on Telegram (deleted by the sender)")
         size = getattr(m.file, "size", 0) or 0
         if size > MAX_DOWNLOAD_BYTES:
             raise AccountError("File is larger than 50 MB — open it in Telegram")
         buf = io.BytesIO()
         await _client.download_media(m, file=buf)
+        data = buf.getvalue()
+        if not data:
+            raise AccountError("Telegram returned an empty file")
         mime = (m.file.mime_type if m.file else "") or ("image/jpeg" if m.photo else "application/octet-stream")
         name = (m.file.name if m.file and m.file.name else f"{msg_id}")
-        return buf.getvalue(), mime, name
-    return _run(go(), timeout=300)
+        return data, mime, name
+    try:
+        return _run(go(), timeout=300)
+    except AccountError as e:
+        if "no longer exists" in str(e) or "larger than" in str(e):
+            raise
+        print(f"[ACCOUNT] download retry ({e})")
+        return _run(go(), timeout=300)              # one retry for transient network errors
