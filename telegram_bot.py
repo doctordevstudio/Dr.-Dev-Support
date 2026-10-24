@@ -126,6 +126,34 @@ def _is_blocked(cid: str) -> bool:
     return bool(get_meta(cid).get("blocked"))
 
 
+# ── Never handle the same message twice (redeploys can redeliver the last updates) ──
+_seen_ids = {}
+_seen_lock = threading.Lock()
+
+
+def _already_seen(cid: str, mid: str) -> bool:
+    """In-memory: the same message twice in one run."""
+    k = (cid, mid)
+    with _seen_lock:
+        if k in _seen_ids:
+            return True
+        _seen_ids[k] = 1
+        if len(_seen_ids) > 20000:
+            for old in list(_seen_ids)[:5000]:
+                _seen_ids.pop(old, None)
+    return False
+
+
+def _already_stored(cid: str, mid: str) -> bool:
+    """In Firebase: handled by the previous instance before the redeploy."""
+    return bool(fb.get(f"support/{cid}/messages/{mid}/msg_id"))
+
+
+def _is_old(msg, seconds: int = 10) -> bool:
+    d = getattr(msg, "date", None)
+    return bool(d) and time.time() - int(d) > seconds
+
+
 def send_formatted(chat_id, text: str, fmt: str = "html", **kw):
     """Send `text` as real Telegram HTML or as truly plain text."""
     if fmt == "html":
@@ -1436,6 +1464,8 @@ if bot:
     def _persist_incoming(msg, cid, mid, data, kind, notify_text, file_id="", file_name=""):
         """Everything the user does not wait for: profile, storage, log, read marks, admin ping."""
         try:
+            if _is_old(msg, 5) and _already_stored(cid, mid):
+                return                               # the previous instance already stored, notified, forwarded
             uname, un = _update_profile(cid, msg.from_user)
             data["user_name"], data["username"] = uname, un
             rinfo = _incoming_reply(cid, msg)
@@ -1460,6 +1490,8 @@ if bot:
 
         if _is_blocked(cid):
             return                                   # /block: no reply, nothing stored
+        if _already_seen(cid, mid) or (_is_old(msg) and _already_stored(cid, mid)):
+            return                                   # redelivered after a redeploy: already handled
         settings.load()                              # cached (refreshed in the background)
         uname = _display_name(msg.from_user)
         un = getattr(msg.from_user, "username", "") or ""
@@ -1482,6 +1514,8 @@ if bot:
 
         if _is_blocked(cid):
             return
+        if _already_seen(cid, mid) or (_is_old(msg) and _already_stored(cid, mid)):
+            return                                   # redelivered after a redeploy: already handled
         settings.load()
         uname = _display_name(msg.from_user)
         un = getattr(msg.from_user, "username", "") or ""
