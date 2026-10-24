@@ -18,6 +18,14 @@ services:
         sync: false
       - key: FIREBASE_SECRET
         sync: false
+      - key: FIREBASE_CREDENTIALS
+        sync: false
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: GROQ_MODELS
+        value: openai/gpt-oss-120b,openai/gpt-oss-20b
       - key: SUPER_ADMIN_USERNAME
         sync: false
       - key: SUPER_ADMIN_PASSWORD

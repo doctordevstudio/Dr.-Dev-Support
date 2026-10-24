@@ -20,12 +20,20 @@ Design rules
   admin's actions only to the admin log, the super admin's only to the super
   log — so the admin can never see anything the super admin did.
 * IP addresses are never written to the logs.
+* FIREBASE ADMIN access: with a service account (FIREBASE_CREDENTIALS) every call carries
+  an OAuth bearer token, so the database rules can be ".read": false / ".write": false —
+  nobody but this server can touch the data.
+* Hot-path helpers: `multi_update()` writes many paths in ONE request, `inc()` is a
+  server-side counter (no read-before-write), `bg()` runs slow side effects in a pool.
 """
+import base64
 import datetime
+import json
 import queue
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -35,7 +43,7 @@ import config
 TIMEOUT = 12
 
 _session = requests.Session()
-_adapter = HTTPAdapter(pool_connections=4, pool_maxsize=24, max_retries=1)
+_adapter = HTTPAdapter(pool_connections=8, pool_maxsize=48, max_retries=1)
 _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
 
@@ -64,13 +72,90 @@ def _url(path: str) -> str:
     return f"{_base()}/{path.strip('/')}.json"
 
 
+# ── Admin (service account) authentication ───────────────────────────────────
+_SCOPES = ["https://www.googleapis.com/auth/firebase.database",
+           "https://www.googleapis.com/auth/userinfo.email"]
+_cred = {"obj": None, "tried": False}
+_cred_lock = threading.Lock()
+
+
+def _load_service_account():
+    raw = config.FIREBASE_CREDENTIALS
+    info = None
+    if raw:
+        if not raw.lstrip().startswith("{"):
+            raw = base64.b64decode(raw).decode("utf-8")
+        info = json.loads(raw)
+    elif config.FIREBASE_CREDENTIALS_FILE:
+        with open(config.FIREBASE_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+            info = json.load(f)
+    if not info:
+        return None
+    from google.oauth2 import service_account
+    return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
+
+
+def admin_mode() -> bool:
+    """True when a service account is configured (Firebase rules can be fully locked)."""
+    with _cred_lock:
+        if not _cred["tried"]:
+            _cred["tried"] = True
+            try:
+                _cred["obj"] = _load_service_account()
+            except Exception as e:
+                print(f"[FB-ADMIN] could not load service account: {e}")
+        return _cred["obj"] is not None
+
+
+def _auth_headers() -> dict:
+    if not admin_mode():
+        return {}
+    with _cred_lock:
+        c = _cred["obj"]
+        try:
+            if not c.valid:                       # first call or token about to expire
+                from google.auth.transport.requests import Request
+                c.refresh(Request())
+            return {"Authorization": f"Bearer {c.token}"}
+        except Exception as e:
+            print(f"[FB-ADMIN] token refresh failed: {e}")
+            return {}
+
+
 def _params(extra=None) -> dict:
     p = {}
-    if config.FIREBASE_SECRET:
+    if config.FIREBASE_SECRET and not admin_mode():      # legacy database secret
         p["auth"] = config.FIREBASE_SECRET
     if extra:
         p.update(extra)
     return p
+
+
+# ── Background pool for slow side effects (notifications, mirrors, …) ────────
+_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="bg")
+
+
+def bg(fn, *args, **kwargs):
+    """Fire-and-forget. The caller's actor (super/admin) is carried over."""
+    actor = get_actor()
+
+    def run():
+        set_actor(actor)
+        try:
+            fn(*args, **kwargs)
+        except Exception as e:
+            print(f"[BG] {getattr(fn, '__name__', fn)}: {e}")
+        finally:
+            set_actor(None)
+    try:
+        return _pool.submit(run)
+    except RuntimeError:
+        return None
+
+
+def inc(n: int = 1) -> dict:
+    """Server-side increment: {'.sv': {'increment': n}} — no read-before-write."""
+    return {".sv": {"increment": n}}
 
 
 def _request(method: str, path: str, data=None, params=None):
@@ -81,7 +166,7 @@ def _request(method: str, path: str, data=None, params=None):
         r = _session.request(
             method, _url(path),
             json=data if method in ("PUT", "PATCH", "POST") else None,
-            params=_params(params), timeout=TIMEOUT,
+            params=_params(params), headers=_auth_headers() or None, timeout=TIMEOUT,
         )
         try:
             body = r.json()
@@ -113,8 +198,35 @@ def _mirror_meta(path: str, data, replace: bool):
     if not m or not isinstance(data, dict):
         return
     cid = m.group(1)
-    _request("PUT" if replace else "PATCH", f"chat_index/{cid}", data)
+    snapshot = dict(data)
+
+    def run():                                  # the index copy never delays the caller
+        _request("PUT" if replace else "PATCH", f"chat_index/{cid}", snapshot)
+        _invalidate_index()
     _invalidate_index()
+    try:
+        _pool.submit(run)
+    except RuntimeError:
+        run()
+
+
+_META_KEY_RE = re.compile(r"^support/([^/]+)/meta/([^/]+)$")
+
+
+def multi_update(updates: dict):
+    """ONE request for many paths: {"support/1/messages/5": {...}, "support/1/meta/unread": inc()}.
+    Meta fields are mirrored to chat_index in the background."""
+    ok, body, _ = _request("PATCH", "", updates)
+    if not ok:
+        return None
+    per_chat = {}
+    for k, v in updates.items():
+        m = _META_KEY_RE.match(k.strip("/"))
+        if m:
+            per_chat.setdefault(m.group(1), {})[m.group(2)] = v
+    for cid, fields in per_chat.items():
+        _mirror_meta(f"support/{cid}/meta", fields, replace=False)
+    return body
 
 
 def put(path: str, data):

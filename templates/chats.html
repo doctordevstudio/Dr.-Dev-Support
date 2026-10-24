@@ -15,6 +15,15 @@
 .search-wrap .s-clear:hover{color:var(--text);background:var(--card3)}
 .search-wrap kbd{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:.66rem;
   border:1px solid var(--border2);border-radius:6px;padding:1px 7px;color:var(--muted);font-family:inherit;pointer-events:none}
+.tabs{display:flex;gap:6px;margin-bottom:14px;padding:5px;background:var(--card2);border:1px solid var(--border);
+  border-radius:14px;width:fit-content;max-width:100%}
+.tab{background:transparent;border:none;color:var(--muted);padding:10px 20px;border-radius:10px;font-size:.86rem;font-weight:700;
+  cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;transition:all .18s}
+.tab:hover{color:var(--text)}
+.tab.on{background:var(--grad);color:#fff;box-shadow:0 4px 14px rgba(var(--accent-rgb),.35)}
+.tab .tn{font-size:.68rem;background:rgba(127,127,127,.22);padding:1px 8px;border-radius:99px}
+.tab.on .tn{background:rgba(255,255,255,.28)}
+.tab .tn.hot{background:var(--accent2);color:#fff}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .chip{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:99px;
   font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .18s;display:inline-flex;align-items:center;gap:7px}
@@ -63,6 +72,12 @@ mark.hl{background:rgba(255,214,10,.8);color:#111;border-radius:3px;padding:0 1p
     <kbd>/</kbd>
   </div>
 </div>
+{% if init.tabs %}
+<div class="tabs" id="tabs">
+  <button class="tab on" data-tab="bot"><i class="fa-solid fa-robot"></i> Bot <span class="tn" id="tnBot">0</span></button>
+  <button class="tab" data-tab="account"><i class="fa-solid fa-mobile-screen"></i> Account <span class="tn" id="tnAcc">0</span></button>
+</div>
+{% endif %}
 <div class="chips" id="chips">
   <button class="chip active" data-f="all"><i class="fa-solid fa-comments"></i> All <span class="n" id="nAll">0</span></button>
   <button class="chip" data-f="unread"><i class="fa-solid fa-envelope"></i> Unread <span class="n" id="nUnread">0</span></button>
@@ -78,7 +93,8 @@ mark.hl{background:rgba(255,214,10,.8);color:#111;border-radius:3px;padding:0 1p
 (function(){
 const $ = id => document.getElementById(id);
 const init = JSON.parse($('initData').textContent);
-let state = {q: init.q || '', filter: init.filter || 'all', page: init.page || 1};
+const ACC_EMPTY = {{ ('Link your account in Settings — private chats appear here' if init.tabs else '')|tojson }};
+let state = {q: init.q || '', filter: init.filter || 'all', page: init.page || 1, tab: init.tab || 'bot'};
 let lastData = init, timer = null, seq = 0, loading = false;
 
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
@@ -122,9 +138,18 @@ function row(ch, i){
   const chev = el('i','fa-solid fa-chevron-right'); chev.style.cssText='color:var(--muted);font-size:.78rem'; a.appendChild(chev);
   return a;
 }
+function paintTabs(d){
+  const tabs = $('tabs'); if(!tabs) return;
+  tabs.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === state.tab));
+  const u = d.unread || {bot: 0, account: 0};
+  [['tnBot', u.bot], ['tnAcc', u.account]].forEach(([id, n]) => {
+    const e = $(id); e.textContent = n; e.classList.toggle('hot', n > 0);
+  });
+}
 function render(d, animate){
   lastData = d;
-  $('countTitle').textContent = d.counts.all + ' Conversation' + (d.counts.all === 1 ? '' : 's');
+  paintTabs(d);
+  $('countTitle').textContent = d.counts.all + (state.tab === 'account' ? ' P2P chat' : ' Conversation') + (d.counts.all === 1 ? '' : 's');
   $('countSub').textContent = (d.total_unread ? d.total_unread + ' unread · ' : '') + 'Page ' + d.page + ' of ' + d.pages;
   $('nAll').textContent = d.counts.all; $('nUnread').textContent = d.counts.unread; $('nBlocked').textContent = d.counts.blocked;
   document.querySelectorAll('#chips .chip').forEach(c => c.classList.toggle('active', c.dataset.f === state.filter));
@@ -133,7 +158,7 @@ function render(d, animate){
     const e = el('div','empty-state');
     e.innerHTML = '<i class="fa-solid fa-headset"></i>';
     e.appendChild(el('p','', d.q ? 'No matches for "' + d.q + '"' : (state.filter!=='all' ? 'Nothing here' : 'No conversations yet')));
-    e.appendChild(el('p','sub', d.q ? 'Try fewer words, a @username or a chat ID' : 'Users will appear here when they message your bot'));
+    e.appendChild(el('p','sub', d.q ? 'Try fewer words, a @username or a chat ID' : (state.tab === 'account' ? ACC_EMPTY : 'Users will appear here when they message your bot')));
     list.appendChild(e);
   } else {
     const wrap = el('div'); wrap.style.cssText='display:flex;flex-direction:column;gap:8px';
@@ -170,7 +195,7 @@ async function load(animate){
   if(loading && !animate) return;
   loading = true; const my = ++seq;
   try{
-    const qs = new URLSearchParams({page: state.page, filter: state.filter});
+    const qs = new URLSearchParams({page: state.page, filter: state.filter, tab: state.tab});
     if(state.q) qs.set('q', state.q);
     const d = await api('/api/chats?' + qs);
     if(my !== seq) return;
@@ -178,6 +203,7 @@ async function load(animate){
     render(d, animate);
     const u = new URL(location); state.q ? u.searchParams.set('q', state.q) : u.searchParams.delete('q');
     state.filter!=='all' ? u.searchParams.set('filter', state.filter) : u.searchParams.delete('filter');
+    state.tab!=='bot' ? u.searchParams.set('tab', state.tab) : u.searchParams.delete('tab');
     state.page>1 ? u.searchParams.set('page', state.page) : u.searchParams.delete('page');
     history.replaceState(null,'',u);
   }catch(e){ if(my===seq) toast('Could not load chats: '+e.message,'err'); }
@@ -196,6 +222,7 @@ document.addEventListener('keydown', e => {
   if(e.key==='/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)){ e.preventDefault(); box.focus(); }
 });
 document.querySelectorAll('#chips .chip').forEach(c => c.onclick = () => { state.filter = c.dataset.f; state.page = 1; load(true); });
+document.querySelectorAll('#tabs .tab').forEach(t => t.onclick = () => { state.tab = t.dataset.tab; state.filter = 'all'; state.page = 1; $('chatsList').textContent = ''; load(true); });
 
 render(init, true);
 // keep the list live (new messages, unread counters) without disturbing typing

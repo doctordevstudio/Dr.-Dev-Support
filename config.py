@@ -63,7 +63,26 @@ def role_of_chat(chat_or_user_id) -> str:
 
 # ── Firebase ──────────────────────────────────────────────────────────────────
 FIREBASE_URL = _clean(os.environ.get("FIREBASE_URL", ""))
-FIREBASE_SECRET = _clean(os.environ.get("FIREBASE_SECRET", ""))
+FIREBASE_SECRET = _clean(os.environ.get("FIREBASE_SECRET", ""))     # legacy, optional
+# Firebase ADMIN access (service account). With database rules ".read": false /
+# ".write": false only this server can read or write. Give ONE of:
+#   FIREBASE_CREDENTIALS       the service-account JSON (raw or base64)
+#   FIREBASE_CREDENTIALS_FILE  path to that JSON file
+FIREBASE_CREDENTIALS = _clean(os.environ.get("FIREBASE_CREDENTIALS", ""))
+FIREBASE_CREDENTIALS_FILE = _clean(os.environ.get("FIREBASE_CREDENTIALS_FILE", "")) or \
+    _clean(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", ""))
+
+# ── Personal Telegram account (Telethon / MTProto) ───────────────────────────
+# Create at https://my.telegram.org -> API development tools
+TG_API_ID = int(_clean(os.environ.get("TG_API_ID", "") or os.environ.get("API_ID", "")) or 0)
+TG_API_HASH = _clean(os.environ.get("TG_API_HASH", "") or os.environ.get("API_HASH", ""))
+
+# ── AI support (Groq) ────────────────────────────────────────────────────────
+GROQ_MODELS = [
+    m.strip() for m in os.environ.get(
+        "GROQ_MODELS", "openai/gpt-oss-120b,openai/gpt-oss-20b"
+    ).split(",") if m.strip()
+]
 
 # ── Admin panel auth (ONLY from environment variables) ───────────────────────
 # Two accounts: the SUPER admin sees everything, the ADMIN gets a limited view.

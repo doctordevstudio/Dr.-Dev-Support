@@ -256,6 +256,9 @@ code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:.78rem;
     <a href="{{ url_for('welcome_view') }}" class="nav-link {% if request.endpoint=='welcome_view' %}active{% endif %}">
       <i class="fa-solid fa-hand-sparkles"></i> Welcome Message
     </a>
+    <a href="{{ url_for('ai_page') }}" class="nav-link {% if request.endpoint=='ai_page' %}active{% endif %}">
+      <i class="fa-solid fa-wand-magic-sparkles"></i> AI Support
+    </a>
     <div class="nav-section" style="margin-top:6px">Analytics</div>
     <a href="{{ url_for('logs_view') }}" class="nav-link {% if request.endpoint=='logs_view' %}active{% endif %}">
       <i class="fa-solid fa-list-check"></i> Activity Log

@@ -125,7 +125,10 @@ python app.py                                         # http://localhost:5000
 | `SUPER_ADMIN_CHAT_ID` | ✅ | — | Telegram user ID of the super admin |
 | `ADMIN_CHAT_ID` | ✅ | — | Telegram user ID of the admin |
 | `FIREBASE_URL` | ✅ | — | `https://<project>-default-rtdb.firebaseio.com` |
-| `FIREBASE_SECRET` | ✅ | — | Database secret (Project settings → Service accounts → Database secrets) |
+| `FIREBASE_CREDENTIALS` | ✅ | — | Service-account JSON (raw or base64) — Firebase **admin** access, so the rules can stay `".read": false, ".write": false` |
+| `FIREBASE_SECRET` | – | — | Legacy database secret (only used when no service account is set) |
+| `TG_API_ID` / `TG_API_HASH` | for Account tab | — | From my.telegram.org → API development tools |
+| `GROQ_MODELS` | – | `openai/gpt-oss-120b,openai/gpt-oss-20b` | Groq models, tried in order (API keys are added in Settings, one per line) |
 | `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` | ✅ | — | Super admin panel login (no default — login stays disabled until set) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | ✅ | — | Admin panel login (no default) |
 | `SECRET_KEY` | ✅ | random | Flask session key (Render can generate it) |

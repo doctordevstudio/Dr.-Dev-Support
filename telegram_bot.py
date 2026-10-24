@@ -42,23 +42,29 @@ import time
 import telebot
 from telebot import types
 
+import account
+import ai
 import antispam
 import config
 import firebase_helper as fb
 import settings
 
-bot = telebot.TeleBot(config.BOT_TOKEN) if config.BOT_TOKEN else None
+# 16 worker threads (telebot's default is 2 — one slow handler used to block every other user)
+bot = telebot.TeleBot(config.BOT_TOKEN, threaded=True, num_threads=16) if config.BOT_TOKEN else None
 
-BLOCKED_MSG = "🚫 You have been blocked from contacting support."
+# Blocked users are ignored completely: nothing is ever sent back to them.
 
 # Only emoji Telegram accepts as message reactions (😂 / 😮 are NOT in that list).
-# The first six are the quick-reaction row, the rest opens with the "+" button.
-REACTIONS = [
-    "👍", "❤️", "🔥", "😁", "😱", "😢",
-    "👎", "🥰", "👏", "🤣", "🤔", "🤯", "😭", "🎉", "🤩", "🙏", "👌", "💯",
-    "😍", "😎", "🤝", "👀", "🫡", "🏆", "⚡", "😇", "🤗", "😘", "💔", "🙈",
-    "🤓", "😡", "🐳", "🍓", "🤡", "🦄",
+# Grouped for the panel: the first group is the quick-reaction row, the rest opens with "+".
+REACTION_GROUPS = [
+    ("Popular", ["👍", "❤️", "🔥", "😁", "😱", "😢"]),
+    ("Faces", ["🥰", "😍", "🤩", "😘", "🤣", "😭", "😇", "😎", "🤓", "🤗", "🤪", "🤔", "🤯", "🥱",
+               "🥴", "😴", "😨", "😐", "🤨", "😡", "🤬", "🤮", "🤡", "😈"]),
+    ("Hands & people", ["👎", "👏", "🙏", "👌", "🤝", "🫡", "🙈", "🙉", "🙊", "💅", "🤷", "👀", "👻", "👾"]),
+    ("Hearts & symbols", ["💔", "💘", "💋", "💯", "⚡", "🆒", "🎉", "🏆", "💊", "🗿"]),
+    ("Food, animals & fun", ["🐳", "🦄", "🍓", "🍌", "🌭", "🍾", "🌚", "🎃", "🎄", "🎅"]),
 ]
+REACTIONS = [e for _, group in REACTION_GROUPS for e in group]
 
 ROLE_LABEL = {"super": "Super Admin", "admin": "Admin"}
 
@@ -88,8 +94,36 @@ def _display_name(user) -> str:
     return f"{fn} {ln}".strip() or "Friend"
 
 
+# ── Chat meta cache: hot paths never wait for a Firebase read ────────────────
+_meta_cache = {}
+_META_TTL = 45.0
+
+
+def get_meta(cid: str, fresh: bool = False) -> dict:
+    now = time.time()
+    ent = _meta_cache.get(cid)
+    if ent and not fresh and now - ent[0] < _META_TTL:
+        return ent[1]
+    meta = fb.get(f"support/{cid}/meta")
+    meta = meta if isinstance(meta, dict) else {}
+    _meta_cache[cid] = (now, meta)
+    return meta
+
+
+def update_meta(cid: str, **fields):
+    """Write meta fields (+ chat_index) and keep the cache coherent."""
+    if not fields:
+        return
+    fb.patch(f"support/{cid}/meta", fields)
+    ent = _meta_cache.get(cid)
+    if ent:
+        ent[1].update(fields)
+    else:
+        _meta_cache[cid] = (time.time(), dict(fields))
+
+
 def _is_blocked(cid: str) -> bool:
-    return bool(fb.get(f"support/{cid}/meta/blocked"))
+    return bool(get_meta(cid).get("blocked"))
 
 
 def send_formatted(chat_id, text: str, fmt: str = "html", **kw):
@@ -270,16 +304,30 @@ def _remember_notification(admin_id, notif_msg, chat_id: str, msg_key: str):
         print(f"[NOTIFY-MAP] {e}")
 
 
-def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
-                    chat_link: str = "", media=None, msg_key: str = ""):
-    """Media (+caption) -> HTML (+button) -> HTML -> plain text. Always logs the outcome.
-    `media` = (kind, file_id): the user's photo/video/file is delivered to the admin chat too."""
+def _notify_targets(audience: str = "all") -> list:
+    """Chats that get a notification. audience "super": only the super admin (personal
+    account events). `/bot killadmin` mutes the ADMIN role for everything else."""
     ids = config.ADMIN_CHAT_IDS()
-    if not ids:
+    if audience == "super":
+        return [i for i in ids if config.role_of_chat(i) == "super"]
+    if not settings.load().get("notify_admin_role", True):
+        return [i for i in ids if config.role_of_chat(i) == "super"]
+    return ids
+
+
+def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
+                    chat_link: str = "", media=None, msg_key: str = "", audience: str = "all"):
+    """Media (+caption) -> HTML (+button) -> HTML -> plain text. Always logs the outcome.
+    `media` = (kind, file_id): the user's photo/video/file is delivered to the admin chat too.
+    All admin chats are served IN PARALLEL."""
+    ids = _notify_targets(audience)
+    if not config.ADMIN_CHAT_IDS():
         fb.log_event("admin_notify_failed", scope="super", actor="system", chat_id=chat_id,
                      error="SUPER_ADMIN_CHAT_ID / ADMIN_CHAT_ID not configured (empty)")
         print("[NOTIFY] SUPER_ADMIN_CHAT_ID and ADMIN_CHAT_ID are empty — nothing to send to.")
         return
+    if not ids:
+        return                                      # e.g. admin role muted with /bot killadmin
     if not bot:
         fb.log_event("admin_notify_failed", scope="super", actor="system", chat_id=chat_id,
                      error="Bot not initialized (BOT_TOKEN missing)")
@@ -291,7 +339,7 @@ def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
     # tap -> the bot asks for your message and sends it to the customer as a reply
     mk.add(types.InlineKeyboardButton("↩️ Reply", callback_data=f"rp:{chat_id}:{msg_key or 0}"))
 
-    for admin_id in ids:
+    def one(admin_id):
         sent, last_err, sent_msg = False, "", None
         # each admin's delivery result goes ONLY to that admin's own log
         lscope = config.role_of_chat(admin_id) or "super"
@@ -309,7 +357,7 @@ def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
                 _remember_notification(admin_id, sent_msg, chat_id, msg_key)
                 fb.log_event("admin_notified", scope=lscope, actor="system", chat_id=chat_id,
                              admin_id=str(admin_id), msg_type=event)
-                continue
+                return
         try:
             sent_msg = bot.send_message(admin_id, html_text, parse_mode="HTML", reply_markup=mk)
             sent = True
@@ -334,6 +382,16 @@ def _send_to_admins(html_text: str, plain_text: str, chat_id: str, event: str,
         else:
             fb.log_event("admin_notify_failed", scope=lscope, actor="system", chat_id=chat_id,
                          admin_id=str(admin_id), error=last_err)
+
+    if len(ids) == 1:
+        one(ids[0])
+        return
+    futs = [fb.bg(one, i) for i in ids]
+    for f in futs:                                  # wait, so callers still see "done" semantics
+        try:
+            f and f.result(timeout=40)
+        except Exception as e:
+            print(f"[NOTIFY] {e}")
 
 
 def send_admin_notify(chat_id: str, user_name: str, username: str, text: str,
@@ -420,13 +478,12 @@ def send_admin_reaction_notify(chat_id, user_name, username, emojis, target_text
 
 
 def send_admin_given_reaction_notify(chat_id: str, emoji: str, msg: dict, actor: str, shown: bool = True):
+    audience = "super" if account.is_acct(chat_id) else "all"
     """An admin reacted (panel or bot): tell BOTH admin chats. The customer sees the emoji on
     their own Telegram message (set_message_reaction)."""
     if not config.REACTION_NOTIFY or not emoji:
         return
-    meta = fb.chat_index().get(chat_id)
-    if not isinstance(meta, dict) or not meta:
-        meta = fb.get(f"support/{chat_id}/meta") or {}
+    meta = get_meta(chat_id)
     name = meta.get("user_name") or chat_id
     un = meta.get("username") or ""
     who = ROLE_LABEL.get(actor, "Admin")
@@ -445,16 +502,20 @@ def send_admin_given_reaction_notify(chat_id: str, emoji: str, msg: dict, actor:
         f"{icon} <b>By:</b> {who}\n"
         f"👤 <b>To:</b> {h(name)}\n"
         f"🔗 <b>Username:</b> {uname_html}\n"
-        f"🆔 <b>Chat ID:</b> <code>{h(str(chat_id))}</code>\n"
+        f"🆔 <b>Chat ID:</b> <code>{h(str(chat_id).lstrip('a') if account.is_acct(chat_id) else str(chat_id))}</code>\n"
+        f"{'👤 <b>Source:</b> P2P chat' + chr(10) if account.is_acct(chat_id) else ''}"
         f"↪️ <b>On message:</b> {h(target)}\n"
         f"🕐 <b>Time (IST):</b> {now_str()}\n"
         f"{seen_html}"
     )
     plain_text = (
         f"{emoji} Reaction given\nBy: {who}\nTo: {name}\nUsername: {uname_plain}\n"
-        f"Chat ID: {chat_id}\nOn message: {target}\nTime (IST): {now_str()}\n{seen_plain}"
+        f"Chat ID: {str(chat_id).lstrip('a') if account.is_acct(chat_id) else chat_id}\n"
+        f"{'Source: P2P chat' + chr(10) if account.is_acct(chat_id) else ''}"
+        f"On message: {target}\nTime (IST): {now_str()}\n{seen_plain}"
     )
-    _send_to_admins(html_text, plain_text, chat_id, "reaction_given", _panel_link(chat_id))
+    _send_to_admins(html_text, plain_text, chat_id, "reaction_given", _panel_link(chat_id),
+                    audience=audience)
 
 
 def send_admin_edit_notify(chat_id, user_name, username, old_text, new_text):
@@ -479,53 +540,159 @@ def send_admin_edit_notify(chat_id, user_name, username, old_text, new_text):
 
 # ── Storage helpers ───────────────────────────────────────────────────────────
 def mark_admin_msgs_seen(chat_id: str):
-    """User wrote back -> every admin message becomes 'read' (one request)."""
-    msgs = fb.get(f"support/{chat_id}/messages") or {}
+    """User wrote back -> the latest admin messages become 'read' (one small query, one write)."""
+    ok, data = fb.query_by_ts(f"support/{chat_id}/messages", limit_last=40)
+    if not ok:
+        data = fb.get(f"support/{chat_id}/messages") or {}
     upd = {
-        f"{mid}/read": True
-        for mid, m in msgs.items()
+        f"support/{chat_id}/messages/{mid}/read": True
+        for mid, m in (data or {}).items()
         if isinstance(m, dict) and m.get("from") == "admin" and not m.get("read")
     }
     if upd:
-        fb.patch(f"support/{chat_id}/messages", upd)
+        fb.multi_update(upd)
 
 
-def store_message(chat_id: str, msg_id: str, data: dict):
-    fb.put(f"support/{chat_id}/messages/{msg_id}", data)
-    prev_unread = fb.get(f"support/{chat_id}/meta/unread") or 0
-    fb.patch(
-        f"support/{chat_id}/meta",
-        {
-            "last_message": data.get("text") or data.get("caption") or f"[{data.get('type','message')}]",
-            "last_time": data.get("time", now_str()),
-            "last_ts": now_ts(),
-            "unread": prev_unread + (1 if data.get("from") == "user" else 0),
-            "chat_id": str(chat_id),
-            "user_name": data.get("user_name", ""),
-            "username": data.get("username", ""),
-        },
-    )
+def store_message(chat_id: str, msg_id: str, data: dict, extra: dict = None, count_unread=None):
+    """ONE Firebase request: the message + the meta fields + unread counter (server-side
+    increment, no read-before-write). `extra` = more root paths to write in the same request."""
+    cid = str(chat_id)
+    base = f"support/{cid}"
+    last = data.get("text") or data.get("caption") or f"[{data.get('type', 'message')}]"
+    ts = int(data.get("ts") or now_ts())
+    up = {
+        f"{base}/messages/{msg_id}": data,
+        f"{base}/meta/last_message": last,
+        f"{base}/meta/last_time": data.get("time", now_str()),
+        f"{base}/meta/last_ts": ts,
+        f"{base}/meta/chat_id": cid,
+    }
+    if data.get("user_name"):
+        up[f"{base}/meta/user_name"] = data["user_name"]
+    if "username" in data and data.get("from") == "user":
+        up[f"{base}/meta/username"] = data.get("username") or ""
+    if data.get("source"):
+        up[f"{base}/meta/source"] = data["source"]
+    if count_unread is None:
+        count_unread = data.get("from") == "user"
+    if count_unread:
+        up[f"{base}/meta/unread"] = fb.inc(1)
+    if extra:
+        up.update(extra)
+    res = fb.multi_update(up)
+    ent = _meta_cache.get(cid)
+    if ent:
+        ent[1].update({"last_message": last, "chat_id": cid, "last_ts": ts,
+                       **({"user_name": data["user_name"]} if data.get("user_name") else {}),
+                       **({"username": data.get("username") or ""} if data.get("from") == "user" else {})})
+    return res
 
 
-def _update_profile(cid: str, user):
+def forward_bot_media(cid: str, kind: str, file_id: str, caption: str, name: str, username: str, ts=None):
+    """Media sent to the BOT -> the bot channel / group from Settings (a different one than the
+    personal account's). Always shows "Forwarded from" + full name, @username, chat id, date, time."""
+    chan = settings.load().get("forward_channel_bot") or ""
+    if not chan or not bot or not file_id:
+        return
+    target = int(chan) if chan.lstrip("-").isdigit() else "@" + chan
+    when = datetime.datetime.fromtimestamp(ts or time.time(), config.IST).strftime("%Y-%m-%d %H:%M:%S")
+    un = ("@" + username) if username else "—"
+    foot_plain = (f"📨 Forwarded from: {name}\n🔗 Username: {un}\n"
+                  f"🆔 Chat ID: {cid}\n🕐 {when} IST")
+    foot_html = (f"📨 <b>Forwarded from:</b> {h(name)}\n🔗 <b>Username:</b> {h(un)}\n"
+                 f"🆔 <b>Chat ID:</b> <code>{h(str(cid))}</code>\n🕐 {when} IST")
+    orig = (caption or "").strip()
+    room = 1024 - len(foot_plain) - 120               # HTML escaping makes the footer a bit longer
+    cap_html = (h(orig[:max(0, room)]) + "\n\n" if orig else "") + foot_html
+    cap_plain = (orig[:max(0, room)] + "\n\n" if orig else "") + foot_plain
+    send = {"photo": bot.send_photo, "video": bot.send_video}.get(kind, bot.send_document)
+    last = ""
+    for cap, pm in ((cap_html, "HTML"), (cap_plain, None)):
+        try:
+            send(target, file_id, caption=cap[:1024], **({"parse_mode": pm} if pm else {}))
+            fb.log_event("media_forwarded", msg_type=kind, source="bot")
+            return
+        except Exception as e:
+            last = str(e)
+    print(f"[FORWARD-BOT] {last}")
+    fb.log_event("forward_failed", scope="super", actor="system", source="bot", error=last[:200])
+
+
+def _update_profile(cid: str, user, meta: dict = None):
+    """Name / username / photo bookkeeping. Detects a USERNAME CHANGE and tells the admins."""
     uname = _display_name(user)
     un = getattr(user, "username", "") or ""
-    meta = fb.get(f"support/{cid}/meta") or {}
+    meta = meta if meta is not None else get_meta(cid)
+    patch = {}
+    if meta.get("user_name") != uname:
+        patch["user_name"] = uname
+    old_un = meta.get("username")
+    if old_un != un:
+        patch["username"] = un
+        if meta.get("user_name") and old_un is not None:        # a known user changed it
+            notify_username_change(cid, cid, uname, old_un or "", un, audience="all")
+    if meta.get("chat_id") != cid:
+        patch["chat_id"] = cid
+    if meta.get("unreachable"):
+        patch["unreachable"] = False                # they just wrote to us, so we can reach them
+    # Only look for a profile photo when we have none, and at most once a day.
     file_id = meta.get("photo_file_id") or ""
-    patch = {
-        "user_name": uname,
-        "username": un,
-        "chat_id": cid,
-        "unreachable": False,          # they just wrote to us, so we can reach them
-    }
-    # Only look for a profile photo when we have none, and at most once a day
-    # (users without a photo used to cost one Telegram call per message).
     if not file_id and now_ts() - int(meta.get("photo_checked_ts") or 0) > 86400:
         file_id = get_user_photo_file_id(user.id)
         patch["photo_checked_ts"] = now_ts()
-    patch["photo_file_id"] = file_id or ""
-    fb.patch(f"support/{cid}/meta", patch)
+        patch["photo_file_id"] = file_id or ""
+    if patch:
+        update_meta(cid, **patch)
     return uname, un
+
+
+def record_edit(cid: str, key: str, new_text: str):
+    """A user (or the account owner on the phone) edited a message. NOTHING is overwritten
+    blindly: the previous text goes to edit_history, the panel shows every version."""
+    path = f"support/{cid}/messages/{key}"
+    old = fb.get(path)
+    if not isinstance(old, dict):
+        return None
+    old_text = old.get("text") or ""
+    if new_text == old_text:
+        return None
+    fb.post(f"{path}/edit_history", {"text": old_text, "at": now_str()})
+    upd = {"text": new_text, "edited": True, "edited_at": now_str()}
+    if old.get("type") != "text":
+        upd["caption"] = new_text
+    fb.patch(path, upd)
+    kw = {"scope": "super", "actor": "system"} if account.is_acct(cid) else {}
+    fb.log_event("message_edited_by_user" if old.get("from") == "user" else "message_edited",
+                 chat_id=cid, msg_id=key, **kw)
+    return old_text
+
+
+def notify_username_change(cid: str, shown_id, name: str, old: str, new: str, audience: str = "all"):
+    """Bot users: both admins. P2P users of the personal account: ONLY the super admin."""
+    p2p = account.is_acct(cid)
+    fb.log_event("username_changed", scope=("super" if p2p else None), actor="system",
+                 chat_id=str(cid), old=old or "-", new=new or "-", source=("account" if p2p else "bot"))
+    old_h = ("@" + h(old)) if old else "— (none)"
+    new_h = ("@" + h(new)) if new else "— (removed)"
+    src_h = "👤 <b>Source:</b> P2P chat\n" if p2p else ""
+    src_p = "Source: P2P chat\n" if p2p else ""
+    html_text = (
+        "✏️ <b>Username changed</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Name:</b> {h(name)}\n"
+        f"⬅️ <b>Old:</b> {old_h}\n"
+        f"➡️ <b>New:</b> {new_h}\n"
+        f"🆔 <b>Chat ID:</b> <code>{h(str(shown_id).lstrip('a') if p2p else str(shown_id))}</code>\n"
+        f"{src_h}"
+        f"🕐 <b>Time (IST):</b> {now_str()}"
+    )
+    plain_text = (
+        "✏️ Username changed\n"
+        f"Name: {name}\nOld: {'@' + old if old else '— (none)'}\nNew: {'@' + new if new else '— (removed)'}\n"
+        f"Chat ID: {str(shown_id).lstrip('a') if p2p else shown_id}\n{src_p}Time (IST): {now_str()}"
+    )
+    fb.bg(_send_to_admins, html_text, plain_text, str(cid), "username_change", _panel_link(str(cid)),
+          None, "", "super" if p2p else audience)
 
 
 def send_msg(cid, text, **kw):
@@ -559,23 +726,34 @@ _HELP_TOP = (
     "━━━━━━━━━━━━━━━━━━━━━\n"
     "↩️ <b>Quick reply</b>\n"
     "Tap <b>↩️ Reply</b> under a notification (or swipe / reply to it) and send your answer — "
-    "text, image, video or file. The customer gets it as a Telegram reply to <i>that</i> message.\n"
+    "text, image, video or file. The customer gets it as a Telegram reply to <i>that</i> message. "
+    "Multi-line messages are fine — just press Enter for a new line.\n"
     "😍 <b>React</b> to a notification with any Telegram reaction — it is put on the customer's "
     "message (remove your reaction to remove it there). Both admins are told about it.\n\n"
     "💬 <b>Write to a user</b>\n"
-    "<code>/send</code>\n"
-    "→ I ask for the <b>Chat ID</b>, then for the <b>message / image / video / file</b>.\n"
-    "<code>/send chat_id your message</code>\n"
-    "→ sends the text straight away.\n"
-    "<code>/send chat_id</code>\n"
-    "→ then send a message, <b>image / video / file</b> (caption optional).\n\n"
+    "<code>/send</code> → I ask for the <b>Chat ID</b>, then for the message / image / video / file.\n"
+    "<code>/send chat_id your message</code> → sends the text straight away.\n\n"
+    "🤖 <b>AI &amp; blocking (bot users)</b>\n"
+    "<code>/stop chat_id ai</code> → AI stops answering this user\n"
+    "<code>/on chat_id ai</code> → AI answers this user again\n"
+    "<code>/block chat_id</code> → blocked: nothing is answered or sent to him\n"
+    "<code>/unblock chat_id</code> → unblock\n\n"
 )
-_HELP_BROADCAST = (
+_HELP_SUPER = (
     "📢 <b>Broadcast to every user</b>\n"
-    "<code>/broadcast your text</code>\n"
-    "→ sends the text to all users.\n"
-    "<code>/broadcast</code>\n"
-    "→ then send an <b>image / video / file</b> (caption optional) to broadcast it.\n\n"
+    "<code>/broadcast your text</code> → sends the text to all users.\n"
+    "<code>/broadcast</code> → then send an <b>image / video / file</b> (caption optional).\n\n"
+    "🤖 <b>/bot — bot users</b>\n"
+    "<code>/bot offai</code> → AI answers nobody · <code>/bot onai</code> → AI answers everybody "
+    "(except the ones you switched off)\n"
+    "<code>/bot chat_id ignoreai</code> → AI ignores this user · <code>/bot chat_id answerai</code> → answers again\n"
+    "<code>/bot killadmin</code> → the admin gets NO notifications · <code>/bot allowadmin</code> → he gets them\n"
+    "<code>/bot status</code> → current state\n\n"
+    "📱 <b>/account — P2P chats of your linked account</b>\n"
+    "<code>/account offai</code> → AI answers none of your P2P chats · <code>/account onai</code> → answers all "
+    "(except the ones you switched off)\n"
+    "<code>/account chat_id ignoreai</code> · <code>/account chat_id answerai</code>\n"
+    "<code>/account status</code>\n\n"
 )
 _HELP_END = (
     "↩️ <code>/cancel</code> — abort the current action\n"
@@ -590,17 +768,24 @@ _HELP_BROADCAST_NOTE = (
 
 
 def admin_help(role: str = "super") -> str:
-    """The ADMIN role never sees (or can use) /broadcast in the bot."""
+    """The ADMIN role never sees (or can use) /broadcast, /bot and /account in the bot."""
     if role == "super":
-        return _HELP_TOP + _HELP_BROADCAST + _HELP_END + _HELP_BROADCAST_NOTE
+        return _HELP_TOP + _HELP_SUPER + _HELP_END + _HELP_BROADCAST_NOTE
     return _HELP_TOP + _HELP_END
 
 
 def admin_commands_for(role: str) -> list:
-    cmds = [("send", "📤 Send a message to a user"), ("help", "❔ Show help"),
+    cmds = [("send", "📤 Send a message to a user"),
+            ("stop", "🔇 Stop AI for a user (/stop chat_id ai)"),
+            ("on", "🔊 Start AI for a user (/on chat_id ai)"),
+            ("block", "🚫 Block a user (/block chat_id)"),
+            ("unblock", "✅ Unblock a user (/unblock chat_id)"),
+            ("help", "❔ Show help"),
             ("cancel", "❌ Cancel the current action")]
     if role == "super":
-        cmds.insert(1, ("broadcast", "📢 Broadcast to all users"))
+        cmds[1:1] = [("broadcast", "📢 Broadcast to all users"),
+                     ("bot", "🤖 Bot users: AI + admin alerts"),
+                     ("account", "📱 P2P chats: AI control")]
     return cmds
 
 
@@ -698,7 +883,8 @@ def _notification_target(msg):
     if not m:
         return None
     mm = re.search(r"Msg ID:\s*(\d+)", src)
-    return m.group(1), (mm.group(1) if mm else "")
+    cid = ("a" + m.group(1)) if re.search(r"Source:\s*P2P", src) else m.group(1)
+    return cid, (mm.group(1) if mm else "")
 
 
 def _as_admin(fn):
@@ -714,6 +900,9 @@ def _as_admin(fn):
 
 def _target_chat(cid: str):
     """(meta, error_html). error_html is '' when the chat can be written to."""
+    if account.is_acct(cid) and fb.get_actor() != "super":       # the admin never sees P2P chats
+        return None, (f"❌ No chat with ID <code>{h(cid)}</code>. "
+                      "Copy the ID from a notification or from the admin panel.")
     meta = fb.chat_index().get(cid)
     if not isinstance(meta, dict) or not meta:
         meta = fb.get(f"support/{cid}/meta")
@@ -721,7 +910,7 @@ def _target_chat(cid: str):
         return None, (f"❌ No chat with ID <code>{h(cid)}</code>. "
                       "Copy the ID from a notification or from the admin panel.")
     if meta.get("blocked"):
-        return meta, "🚫 This user is blocked. Unblock them in the admin panel first."
+        return meta, "🚫 This user is blocked. Unblock them with /unblock chat_id or in the admin panel."
     return meta, ""
 
 
@@ -816,6 +1005,101 @@ def _start_broadcast_flow(reply, aid):
                     "(caption optional) — or just type the text. /cancel to abort.")
 
 
+_UNKNOWN = "Unknown command. Send /help to see what you can do."
+
+
+def _chat_arg(group: str, raw: str):
+    """/bot|/account <chat_id> -> (chat key, error). Bot chats: 123456 · P2P chats: a123456."""
+    m = re.fullmatch(r"a?(-?\d+)", (raw or "").strip().lower())
+    if not m:
+        return None, "That doesn't look like a Chat ID."
+    cid = ("a" + m.group(1)) if group == "account" else m.group(1)
+    meta = get_meta(cid, fresh=True)
+    if not meta:
+        return None, (f"❌ No {'P2P' if group == 'account' else 'bot'} chat with ID "
+                      f"<code>{h(m.group(1))}</code>.")
+    return cid, ""
+
+
+def _yn(v) -> str:
+    return "ON ✅" if v else "OFF ⛔"
+
+
+def _group_command(role: str, reply, group: str, rest: str):
+    """/bot … and /account … (super admin only)."""
+    if role != "super":
+        send_msg(reply, _UNKNOWN)
+        return
+    toks = rest.split()
+    flag = "ai_bot_enabled" if group == "bot" else "ai_account_enabled"
+    label = "bot users" if group == "bot" else "P2P chats"
+    s = settings.load()
+    t0 = toks[0].lower() if toks else "status"
+    try:
+        if t0 == "status":
+            lines = [f"🤖 <b>/{group}</b> — {label}",
+                     f"AI replies: {_yn(s.get(flag))}",
+                     f"AI keys: {len(ai.get_keys())}"]
+            if group == "bot":
+                lines.append(f"Admin gets notifications: {_yn(s.get('notify_admin_role', True))}")
+            else:
+                lines.append(f"Personal account linked: {_yn(account.linked())}")
+            send_msg(reply, "\n".join(lines))
+        elif t0 in ("offai", "onai"):
+            settings.save({flag: t0 == "onai"})
+            send_msg(reply, f"🤖 AI replies for {label}: <b>{'ON' if t0 == 'onai' else 'OFF'}</b>" +
+                     ("\n(except the chats you switched off)" if t0 == "onai" else ""))
+        elif group == "bot" and t0 in ("killadmin", "allowadmin"):
+            settings.save({"notify_admin_role": t0 == "allowadmin"})
+            send_msg(reply, "🔔 The admin " + ("now receives notifications." if t0 == "allowadmin"
+                                              else "will NOT receive any notification anymore."))
+        elif len(toks) >= 2 and toks[1].lower() in ("ignoreai", "answerai"):
+            cid, err = _chat_arg(group, toks[0])
+            if err:
+                send_msg(reply, err)
+                return
+            off = toks[1].lower() == "ignoreai"
+            res = set_chat_ai(cid, off)
+            shown = cid.lstrip("a") if group == "account" else cid
+            send_msg(reply, res.get("error") or
+                     (f"🔇 AI will <b>ignore</b> <code>{h(shown)}</code>." if off
+                      else f"🔊 AI will <b>answer</b> <code>{h(shown)}</code>."))
+        else:
+            send_msg(reply, f"Usage:\n<code>/{group} offai</code> · <code>/{group} onai</code>\n"
+                            f"<code>/{group} chat_id ignoreai</code> · <code>/{group} chat_id answerai</code>\n"
+                            + ("<code>/bot killadmin</code> · <code>/bot allowadmin</code>\n" if group == "bot" else "")
+                            + f"<code>/{group} status</code>")
+    except ValueError as e:
+        send_msg(reply, f"❌ {h(str(e))}")
+
+
+def _user_command(reply, cmd: str, rest: str):
+    """/stop <id> ai · /on <id> ai · /block <id> · /unblock <id> — bot users, both admin roles."""
+    toks = rest.split()
+    if not toks:
+        send_msg(reply, {"stop": "Usage: <code>/stop chat_id ai</code>", "on": "Usage: <code>/on chat_id ai</code>",
+                         "block": "Usage: <code>/block chat_id</code>",
+                         "unblock": "Usage: <code>/unblock chat_id</code>"}[cmd])
+        return
+    cid, err = _chat_arg("bot", toks[0])
+    if err:
+        send_msg(reply, err)
+        return
+    if cmd in ("stop", "on"):
+        if len(toks) < 2 or toks[1].lower() != "ai":
+            send_msg(reply, f"Usage: <code>/{cmd} chat_id ai</code>")
+            return
+        res = set_chat_ai(cid, cmd == "stop")
+        send_msg(reply, res.get("error") or (f"🔇 AI will <b>ignore</b> <code>{h(cid)}</code>." if cmd == "stop"
+                                             else f"🔊 AI will <b>answer</b> <code>{h(cid)}</code>."))
+    elif cmd == "block":
+        block_user(cid)
+        send_msg(reply, f"🚫 <code>{h(cid)}</code> is blocked — nothing is answered or sent to him.")
+    else:
+        unblock_user(cid)
+        send_msg(reply, f"✅ <code>{h(cid)}</code> is unblocked.")
+
+
 _unsupported_seen = {}
 
 
@@ -827,7 +1111,8 @@ if bot:
         u = getattr(msg, "from_user", None)
         return getattr(msg.chat, "type", "private") == "private" and is_admin(getattr(u, "id", None), msg.chat.id)
 
-    @bot.message_handler(commands=["start", "help", "send", "broadcast", "cancel"], func=_admin_only)
+    @bot.message_handler(commands=["start", "help", "send", "broadcast", "cancel", "bot", "account",
+                                   "stop", "on", "block", "unblock"], func=_admin_only)
     @_as_admin
     def admin_commands(msg):
         import broadcast as bc
@@ -866,6 +1151,10 @@ if bot:
             else:
                 _set_state(aid, action="send", cid=cid)
                 send_msg(reply, _ask_message_text(meta, cid))
+        elif cmd in ("bot", "account"):
+            _group_command(role, reply, cmd, rest)
+        elif cmd in ("stop", "on", "block", "unblock"):
+            _user_command(reply, cmd, rest)
         elif cmd == "broadcast":
             if role != "super":                               # hidden for the ADMIN role
                 send_msg(reply, "Unknown command. Send /help to see what you can do.")
@@ -1031,25 +1320,12 @@ if bot:
     def cmd_start(msg):
         cid = str(msg.chat.id)
         if _is_blocked(cid):
-            send_msg(cid, BLOCKED_MSG)
-            return
-
-        uname, un = _update_profile(cid, msg.from_user)
-        meta = fb.get(f"support/{cid}/meta") or {}
-        fb.patch(
-            f"support/{cid}/meta",
-            {
-                "started_at": meta.get("started_at", now_str()),
-                "unread": meta.get("unread", 0),
-                "blocked": False,
-            },
-        )
-        fb.log_event("chat_started", chat_id=cid, user_name=uname, username=un)
+            return                                   # blocked users get no answer at all
 
         welcome = get_welcome_message()
         fmt = get_welcome_format()
         try:
-            send_formatted(cid, welcome, fmt)
+            send_formatted(cid, welcome, fmt)         # the user gets the welcome FIRST
         except Exception as e:
             # Broken HTML -> strip tags and send plain text so the user still gets it
             try:
@@ -1057,6 +1333,15 @@ if bot:
             except Exception:
                 print(f"[WELCOME] {e}")
             fb.log_event("bot_error", chat_id=cid, error=f"welcome: {e}")
+
+        def after():
+            uname, un = _update_profile(cid, msg.from_user)
+            meta = get_meta(cid)
+            update_meta(cid, started_at=meta.get("started_at", now_str()), blocked=False)
+            if not meta.get("unread"):
+                update_meta(cid, unread=0)
+            fb.log_event("chat_started", chat_id=cid, user_name=uname, username=un)
+        fb.bg(after)
 
     def _spam_gate(cid: str, uname: str, text: str, msg_date=None) -> bool:
         # Messages that were queued while the bot was offline arrive in a burst
@@ -1073,7 +1358,7 @@ if bot:
         )
 
         if result["auto_block"]:
-            fb.patch(f"support/{cid}/meta", {"blocked": True, "blocked_reason": "auto: spam"})
+            update_meta(cid, blocked=True, blocked_reason="auto: spam")
             try:
                 bot.send_message(cid, result["warn"])
             except Exception:
@@ -1091,16 +1376,81 @@ if bot:
             return
         cooldown = config.AUTO_REPLY_COOLDOWN_MINUTES
         if cooldown > 0:
-            last = fb.get(f"support/{cid}/meta/last_auto_reply_ts") or 0
+            last = get_meta(cid).get("last_auto_reply_ts") or 0
             if now_ts() - last < cooldown * 60:
                 return
         try:
-            bot.send_chat_action(cid, "typing")
-            time.sleep(0.6)
-            bot.send_message(cid, h(config.AUTO_REPLY), parse_mode="HTML")
-            fb.patch(f"support/{cid}/meta", {"last_auto_reply_ts": now_ts()})
+            bot.send_message(cid, h(config.AUTO_REPLY), parse_mode="HTML")     # no artificial delay
+            fb.bg(update_meta, cid, last_auto_reply_ts=now_ts())
         except Exception as e:
             print(f"[AUTO_REPLY] {cid}: {e}")
+
+    def _typing(cid: str):
+        try:
+            bot.send_chat_action(cid, "typing")
+        except Exception:
+            pass
+
+    def _ai_reply(cid: str, uname: str, un: str, text: str) -> bool:
+        """AI answer for a bot user. False -> nothing was sent (caller falls back to auto-reply)."""
+        try:
+            s = settings.load()
+            if not s.get("ai_bot_enabled", True) or not (text or "").strip():
+                return False
+            meta = get_meta(cid)
+            if meta.get("ai_off") or meta.get("blocked") or not ai.available():
+                return False
+            fb.bg(_typing, cid)
+            hist = ai.recall(cid)
+            ai.remember(cid, "user", text)
+            answer = ai.ask(text, s.get("ai_prompt_bot") or "", history=hist,
+                            context=f"Customer name: {uname}")
+            if not answer:
+                return False
+            m = bot.send_message(cid, answer)                    # plain text: no markup surprises
+            ai.remember(cid, "assistant", answer)
+            fb.bg(_persist_ai_answer, cid, uname, un, text, answer, m.message_id)
+            return True
+        except Exception as e:
+            print(f"[AI] {cid}: {e}")
+            fb.log_event("bot_error", chat_id=cid, error=f"ai: {e}")
+            return False
+
+    def _persist_ai_answer(cid, uname, un, question, answer, tg_id):
+        data = {
+            "msg_id": f"admin_{tg_id}", "chat_id": cid, "text": answer, "type": "text",
+            "from": "admin", "sent_by": "ai", "ai": True,
+            "time": now_str(), "ts": now_ts(),
+            "read": False, "delivered": True, "edited": False, "deleted": False,
+        }
+        store_message(cid, f"admin_{tg_id}", data)
+        ai.record("bot", cid, cid, uname, un, question, answer)
+        fb.log_event("ai_answered", chat_id=cid, source="bot")
+
+    def _respond(cid: str, uname: str, un: str, text: str):
+        """What the USER sees comes first and never waits for storage / notifications."""
+        if not _ai_reply(cid, uname, un, text):
+            _maybe_auto_reply(cid)
+
+    def _persist_incoming(msg, cid, mid, data, kind, notify_text, file_id="", file_name=""):
+        """Everything the user does not wait for: profile, storage, log, read marks, admin ping."""
+        try:
+            uname, un = _update_profile(cid, msg.from_user)
+            data["user_name"], data["username"] = uname, un
+            rinfo = _incoming_reply(cid, msg)
+            if rinfo:
+                data["reply_to"] = rinfo
+            store_message(cid, mid, data)
+            fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type=kind)
+            mark_admin_msgs_seen(cid)
+            if kind in ("photo", "video", "document") and file_id:
+                fb.bg(forward_bot_media, cid, kind, file_id, data.get("caption", ""), uname, un,
+                      getattr(msg, "date", None))
+            send_admin_notify(cid, uname, un, notify_text, kind, file_id=file_id, file_name=file_name,
+                              msg_id=mid, reply_text=(rinfo or {}).get("text", ""))
+        except Exception as e:
+            print(f"[PERSIST] {e}")
+            fb.log_event("bot_error", chat_id=cid, error=f"persist: {e}")
 
     @bot.message_handler(content_types=["text"])
     def handle_text(msg):
@@ -1108,43 +1458,32 @@ if bot:
         mid = str(msg.message_id)
 
         if _is_blocked(cid):
-            send_msg(cid, BLOCKED_MSG)
-            return
-
-        settings.load()                      # fresh anti-spam / auto-reply values
-        uname, un = _update_profile(cid, msg.from_user)
+            return                                   # /block: no reply, nothing stored
+        settings.load()                              # cached (refreshed in the background)
+        uname = _display_name(msg.from_user)
+        un = getattr(msg.from_user, "username", "") or ""
 
         if _spam_gate(cid, uname, msg.text or "", getattr(msg, "date", None)):
             return
 
         data = {
             "msg_id": mid, "chat_id": cid,
-            "user_name": uname, "username": un,
             "text": msg.text, "type": "text",
             "from": "user", "time": now_str(), "ts": now_ts(),
             "read": False, "delivered": True, "edited": False, "deleted": False,
         }
-        rinfo = _incoming_reply(cid, msg)
-        if rinfo:
-            data["reply_to"] = rinfo
-        store_message(cid, mid, data)
-        fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type="text")
-
-        mark_admin_msgs_seen(cid)
-        send_admin_notify(cid, uname, un, msg.text, "text", msg_id=mid,
-                          reply_text=(rinfo or {}).get("text", ""))
-        _maybe_auto_reply(cid)
+        fb.bg(_persist_incoming, msg, cid, mid, data, "text", msg.text)      # in parallel …
+        _respond(cid, uname, un, msg.text or "")                              # … with the answer
 
     def _handle_media(msg, kind: str):
         cid = str(msg.chat.id)
         mid = str(msg.message_id)
 
         if _is_blocked(cid):
-            send_msg(cid, BLOCKED_MSG)
             return
-
         settings.load()
-        uname, un = _update_profile(cid, msg.from_user)
+        uname = _display_name(msg.from_user)
+        un = getattr(msg.from_user, "username", "") or ""
         caption = msg.caption or ""
 
         if _spam_gate(cid, uname, caption or f"[{kind}]", getattr(msg, "date", None)):
@@ -1162,7 +1501,6 @@ if bot:
 
         data = {
             "msg_id": mid, "chat_id": cid,
-            "user_name": uname, "username": un,
             "text": caption, "caption": caption,
             "file_id": file_id,
             "type": kind, "from": "user",
@@ -1171,18 +1509,9 @@ if bot:
         }
         if file_name:
             data["file_name"] = file_name
-        rinfo = _incoming_reply(cid, msg)
-        if rinfo:
-            data["reply_to"] = rinfo
-
-        store_message(cid, mid, data)
-        fb.log_event("message_in", chat_id=cid, user_name=uname, msg_type=kind)
-
-        mark_admin_msgs_seen(cid)
-        send_admin_notify(cid, uname, un, caption or f"[{kind}]", kind,
-                          file_id=file_id, file_name=file_name or "",
-                          msg_id=mid, reply_text=(rinfo or {}).get("text", ""))
-        _maybe_auto_reply(cid)
+        fb.bg(_persist_incoming, msg, cid, mid, data, kind, caption or f"[{kind}]",
+              file_id, file_name or "")
+        _respond(cid, uname, un, caption)
 
     @bot.message_handler(content_types=["photo"])
     def handle_photo(msg):
@@ -1202,21 +1531,10 @@ if bot:
         try:
             cid = str(msg.chat.id)
             mid = str(msg.message_id)
-            path = f"support/{cid}/messages/{mid}"
-            old = fb.get(path)
-            if not isinstance(old, dict):
-                return
             new_text = (msg.text if msg.content_type == "text" else msg.caption) or ""
-            old_text = old.get("text") or ""
-            if new_text == old_text:
+            old_text = record_edit(cid, mid, new_text)      # keeps EVERY version
+            if old_text is None:
                 return
-            # keep the previous version — nothing is ever overwritten blindly
-            fb.post(f"{path}/edit_history", {"text": old_text, "at": now_str()})
-            upd = {"text": new_text, "edited": True, "edited_at": now_str()}
-            if old.get("type") != "text":
-                upd["caption"] = new_text
-            fb.patch(path, upd)
-            fb.log_event("message_edited_by_user", chat_id=cid, msg_id=mid)
             uname = _display_name(msg.from_user)
             send_admin_edit_notify(cid, uname, getattr(msg.from_user, "username", "") or "",
                                    old_text, new_text)
@@ -1283,14 +1601,60 @@ if bot:
 
 
 # ── Admin actions ─────────────────────────────────────────────────────────────
+def set_chat_ai(chat_id: str, off: bool) -> dict:
+    """Per-chat AI switch (panel toggle, /stop /on, /bot|/account <id> ignoreai|answerai)."""
+    meta = get_meta(chat_id, fresh=True)
+    if not meta:
+        return {"error": "Chat not found"}
+    update_meta(chat_id, ai_off=bool(off))
+    fb.log_event("ai_chat_off" if off else "ai_chat_on", chat_id=chat_id,
+                 **({"scope": "super", "actor": "system"} if account.is_acct(chat_id) else {}))
+    return {"ok": True, "ai_off": bool(off)}
+
+
 def _sender() -> str:
     """Role of whoever is sending right now ('super' | 'admin'); stored on every outgoing message."""
     return fb.get_actor() or "admin"
 
 
+def _acct_reply_ctx(chat_id: str, reply_key: str):
+    """(telegram message id to reply to, stored reply info) for a P2P chat."""
+    if not reply_key:
+        return None, None
+    target = fb.get(f"support/{chat_id}/messages/{reply_key}")
+    if not isinstance(target, dict) or target.get("deleted"):
+        return None, None
+    info = {"msg_id": reply_key, "from": target.get("from", "user"),
+            "type": target.get("type", "text"), "text": _snippet(target)}
+    tid = target.get("tg_id") or _tg_id(reply_key) or (int(reply_key) if str(reply_key).isdigit() else None)
+    return tid, info
+
+
+def _acct_store(chat_id: str, res: dict, text: str, ftype="text", fname="", rinfo=None) -> dict:
+    data = account._out_record(chat_id, res, text, sent_by=_sender(), ftype=ftype, fname=fname, rinfo=rinfo)
+    store_message(chat_id, data["msg_id"], data, extra={f"acct_idx/{res['id']}": chat_id})
+    update_meta(chat_id, unread=0)
+    fb.log_event("message_out", scope="super", chat_id=chat_id, msg_type=ftype, source="account")
+    return {"ok": True, "mid": data["msg_id"], "message": data, "type": ftype}
+
+
+def _acct_reply(chat_id: str, text: str, reply_to: str = "") -> dict:
+    try:
+        tid, rinfo = _acct_reply_ctx(chat_id, reply_to)
+        res = account.send_text(account.uid_of(chat_id), text, reply_to_id=tid)
+        return _acct_store(chat_id, res, text, rinfo=rinfo)
+    except account.AccountError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        fb.log_event("bot_error", scope="super", actor="system", chat_id=chat_id, error=str(e))
+        return {"error": str(e)}
+
+
 def admin_reply(chat_id: str, text: str, reply_to: str = "") -> dict:
     """Send a text to a customer. `reply_to` = stored key of the message to reply to:
     the customer then sees a real Telegram reply."""
+    if account.is_acct(chat_id):
+        return _acct_reply(chat_id, text, reply_to)
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
     try:
@@ -1356,6 +1720,15 @@ def _store_admin_media(chat_id: str, m, ftype: str, file_id: str, filename: str,
 def admin_send_file(chat_id: str, file_bytes: bytes, filename: str, mime_type: str, caption: str = "",
                     reply_to: str = "") -> dict:
     """Panel upload -> Telegram."""
+    if account.is_acct(chat_id):
+        try:
+            tid, rinfo = _acct_reply_ctx(chat_id, reply_to)
+            kind = upload_kind(mime_type, len(file_bytes))
+            res = account.send_file(account.uid_of(chat_id), file_bytes, filename, mime_type, caption,
+                                    reply_to_id=tid, kind=kind)
+            return _acct_store(chat_id, res, caption, ftype=kind, fname=filename, rinfo=rinfo)
+        except account.AccountError as e:
+            return {"error": str(e)}
     if not bot:
         return {"error": "Bot is not configured (BOT_TOKEN missing)"}
     try:
@@ -1404,23 +1777,32 @@ def admin_send_media_by_id(chat_id: str, ftype: str, file_id: str, filename: str
 
 
 def block_user(chat_id: str) -> dict:
-    fb.patch(f"support/{chat_id}/meta", {"blocked": True, "blocked_reason": "manual"})
+    """Blocked users are ignored: no AI answer, no auto-reply, nothing is sent to them."""
+    if account.is_acct(chat_id):
+        return {"error": "P2P chats cannot be blocked from here — use AI off instead"}
+    update_meta(chat_id, blocked=True, blocked_reason="manual")
     fb.log_event("blocked", chat_id=chat_id, reason="manual")
-    try:
-        bot.send_message(chat_id, BLOCKED_MSG)
-    except Exception:
-        pass
     return {"ok": True}
 
 
 def unblock_user(chat_id: str) -> dict:
-    fb.patch(f"support/{chat_id}/meta", {"blocked": False, "blocked_reason": ""})
+    update_meta(chat_id, blocked=False, blocked_reason="")
     antispam.reset(chat_id)
     fb.log_event("unblocked", chat_id=chat_id)
     return {"ok": True}
 
 
 def admin_edit_message(chat_id: str, admin_mid: str, new_text: str) -> dict:
+    if account.is_acct(chat_id):
+        old = fb.get(f"support/{chat_id}/messages/{admin_mid}")
+        if not isinstance(old, dict):
+            return {"error": "Message not found"}
+        try:
+            account.edit_text(account.uid_of(chat_id), int(old.get("tg_id") or _tg_id(admin_mid)), new_text)
+        except account.AccountError as e:
+            return {"error": f"Telegram refused the edit: {e}"}
+        record_edit(chat_id, admin_mid, new_text)
+        return {"ok": True}
     if not bot:
         return {"error": "Bot is not configured"}
     path = f"support/{chat_id}/messages/{admin_mid}"
@@ -1469,7 +1851,16 @@ def soft_delete_message(chat_id: str, mid: str, deleted_by: str = "") -> dict:
         return hide_message_for_admin(chat_id, mid)
     deleted_by = deleted_by or "super"
     tg_deleted = None
-    if mid.startswith("admin_") and bot:
+    if account.is_acct(chat_id):
+        m = fb.get(f"support/{chat_id}/messages/{mid}")
+        if isinstance(m, dict) and m.get("from") == "admin" and (m.get("tg_id") or _tg_id(mid)):
+            try:
+                account.delete_message(account.uid_of(chat_id), int(m.get("tg_id") or _tg_id(mid)))
+                tg_deleted = True
+            except account.AccountError as e:
+                tg_deleted = False
+                print(f"[DELETE-ACCT] {chat_id}/{mid}: {e}")
+    elif mid.startswith("admin_") and bot:
         tg_id = _tg_id(mid)
         if tg_id:
             try:
@@ -1509,7 +1900,12 @@ def set_reaction(chat_id: str, mid: str, emoji: str = "", remove: bool = False,
 
     warning = ""
     tg_id = _tg_id(mid)
-    if not bot:
+    if account.is_acct(chat_id):
+        try:
+            account.react(account.uid_of(chat_id), int(msg.get("tg_id") or tg_id or 0), new[0] if new else "")
+        except Exception as e:
+            warning = f"Saved in the panel, but Telegram refused it: {e}"
+    elif not bot:
         warning = "Bot not configured — saved in the panel only"
     elif not tg_id:
         warning = "Old broadcast copy without a Telegram id — saved in the panel only"
@@ -1548,7 +1944,8 @@ def _all_user_chat_ids():
     """Every non-blocked chat that Telegram can still deliver to."""
     out = []
     for cid, meta in fb.chat_index().items():
-        if isinstance(meta, dict) and meta and not meta.get("blocked") and not meta.get("unreachable"):
+        if isinstance(meta, dict) and meta and not meta.get("blocked") and not meta.get("unreachable") \
+                and meta.get("source") != "account" and not account.is_acct(cid):
             out.append(str(cid))
     return out
 

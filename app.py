@@ -5,6 +5,8 @@ Two panel accounts, both configured ONLY through environment variables:
   * super admin  (SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD) — full access
   * admin        (ADMIN_USERNAME / ADMIN_PASSWORD)             — no Settings, own log only,
                    and "deleting" a message / broadcast only hides it from the admin's view
+The personal Telegram account (Account tab, P2P chats, linking) is SUPER ADMIN ONLY: every
+route that takes a chat id answers 404 to the admin for P2P chats.
 """
 import math
 import mimetypes
@@ -24,6 +26,8 @@ from flask import (
 )
 from werkzeug.exceptions import HTTPException
 
+import account
+import ai
 import broadcast as bc
 import config
 import firebase_helper as fb
@@ -125,8 +129,15 @@ def super_required(f):
 
 @app.before_request
 def _bind_actor():
-    """Everything logged / stored during this request is attributed to the logged-in role."""
-    fb.set_actor(current_role() or None)
+    """Everything logged / stored during this request is attributed to the logged-in role.
+    P2P chats (personal account) are invisible to everybody except the super admin."""
+    role = current_role()
+    fb.set_actor(role or None)
+    cid = (request.view_args or {}).get("cid")
+    if cid and account.is_acct(cid) and role != "super":
+        if request.path.startswith("/api") or _is_xhr():
+            return jsonify({"error": "Not found"}), 404
+        abort(404)
 
 
 @app.teardown_request
@@ -237,12 +248,22 @@ def _prep(m: dict, role: str = "super") -> dict:
     `hidden_admin` so the panel can show that the admin removed it from their view."""
     out = dict(m)
     out["reactions"] = tg.reaction_view(m.get("reactions"))
-    out.pop("edit_history", None)
+    # Edits never overwrite: every version is returned (original -> … -> current)
+    hist = out.pop("edit_history", None)
+    if isinstance(hist, dict) and hist:
+        t = m.get("time", "")
+        versions = []
+        for k in sorted(hist):
+            it = hist[k] if isinstance(hist[k], dict) else {}
+            versions.append({"text": it.get("text", ""), "at": t})
+            t = it.get("at", "")
+        versions.append({"text": m.get("text", ""), "at": t, "current": True})
+        out["versions"] = versions
     out.pop("raw_text", None)
     if role == "admin":
         if m.get("hidden_admin"):
             out["deleted"] = True
-            for k in ("text", "caption", "file_id", "file_name", "reply_to"):
+            for k in ("text", "caption", "file_id", "file_name", "reply_to", "versions"):
                 out.pop(k, None)
             out["reactions"] = {"admin": [], "user": []}
         out.pop("hidden_admin", None)
@@ -283,11 +304,21 @@ def _norm(s) -> str:
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
-def _load_all_chats():
+def _tab_arg() -> str:
+    """'bot' | 'account'. Only the super admin can ever get 'account'."""
+    tab = request.args.get("tab", "bot")
+    return "account" if (tab == "account" and current_role() == "super") else "bot"
+
+
+def _load_all_chats(tab: str = "bot"):
     items = []
     for cid, meta in fb.chat_index().items():
-        if isinstance(meta, dict) and meta:
-            items.append({**meta, "chat_id": cid, "last_label": friendly_ts(meta.get("last_ts"))})
+        if not (isinstance(meta, dict) and meta):
+            continue
+        is_p2p = account.is_acct(cid) or meta.get("source") == "account"
+        if (tab == "account") != is_p2p:
+            continue
+        items.append({**meta, "chat_id": cid, "last_label": friendly_ts(meta.get("last_ts"))})
     items.sort(key=lambda c: c.get("last_ts", 0) or 0, reverse=True)
     return items
 
@@ -313,14 +344,14 @@ def _page_arg() -> int:
     return max(1, request.args.get("page", 1, type=int) or 1)
 
 
-def _chats_page():
+def _chats_page(tab: str = "bot"):
     q = request.args.get("q", "").strip()
     flt = request.args.get("filter", "all")
     if flt not in ("all", "unread", "blocked"):
         flt = "all"
     page = _page_arg()
     per = config.CHATS_PER_PAGE
-    base = _search_chats(_load_all_chats(), q)
+    base = _search_chats(_load_all_chats(tab), q)
     counts = {
         "all": len(base),
         "unread": sum(1 for c in base if int(c.get("unread") or 0) > 0),
@@ -337,22 +368,38 @@ def _chats_page():
     return items[start:start + per], total, total_unread, page, pages, q, flt, counts
 
 
+def _unread_by_tab() -> dict:
+    out = {"bot": 0, "account": 0}
+    for cid, meta in fb.chat_index().items():
+        if isinstance(meta, dict) and meta:
+            p2p = account.is_acct(cid) or meta.get("source") == "account"
+            out["account" if p2p else "bot"] += int(meta.get("unread") or 0)
+    if current_role() != "super":
+        out["account"] = 0
+    return out
+
+
 # ── Chat list ─────────────────────────────────────────────────────────────────
 @app.route("/")
 @login_required
 def chats():
-    page_items, total, total_unread, page, pages, q, flt, counts = _chats_page()
+    tab = _tab_arg()
+    page_items, total, total_unread, page, pages, q, flt, counts = _chats_page(tab)
+    unread = _unread_by_tab()
     init = {"chats": page_items, "total": total, "total_unread": total_unread,
-            "page": page, "pages": pages, "q": q, "filter": flt, "counts": counts}
+            "page": page, "pages": pages, "q": q, "filter": flt, "counts": counts,
+            "tab": tab, "tabs": current_role() == "super", "unread": unread}
     return render_template("chats.html", init=init)
 
 
 @app.route("/api/chats")
 @login_required
 def api_chats():
-    page_items, total, total_unread, page, pages, q, flt, counts = _chats_page()
+    tab = _tab_arg()
+    page_items, total, total_unread, page, pages, q, flt, counts = _chats_page(tab)
     return jsonify({"chats": page_items, "total": total, "total_unread": total_unread,
-                    "page": page, "pages": pages, "q": q, "filter": flt, "counts": counts})
+                    "page": page, "pages": pages, "q": q, "filter": flt, "counts": counts,
+                    "tab": tab, "unread": _unread_by_tab()})
 
 
 # ── Debug: send a test admin notification ────────────────────────────────────
@@ -440,6 +487,10 @@ def chat_view(cid):
         "has_more": has_more,
         "total": total,
         "reactions": tg.REACTIONS,
+        "reaction_groups": tg.REACTION_GROUPS,
+        "source": "account" if account.is_acct(cid) else "bot",
+        "ai_off": bool(meta.get("ai_off")),
+        "ai_global": bool(settings.load().get("ai_account_enabled" if account.is_acct(cid) else "ai_bot_enabled")),
         "page_size": per,
         "max_mb": config.MAX_UPLOAD_MB,
         "blocked": bool(meta.get("blocked")),
@@ -568,6 +619,18 @@ def _stream_telegram_file(cid, mid, as_attachment):
     m = fb.get(f"support/{cid}/messages/{mid}")     # ONE message, not the whole chat
     if not isinstance(m, dict):
         return "Not found", 404
+    if account.is_acct(cid):                         # personal account: fetched through MTProto
+        try:
+            data, ctype, name = account.download(account.uid_of(cid), int(m.get("tg_id") or 0))
+        except account.AccountError as e:
+            return str(e), 404
+        headers = {"Cache-Control": "private, max-age=3600"}
+        if as_attachment:
+            fname = (m.get("file_name") or name or mid).replace('"', "").replace("\r", "").replace("\n", "")
+            headers["Content-Disposition"] = (
+                f"attachment; filename=\"{fname.encode('ascii', 'ignore').decode() or 'file'}\"; "
+                f"filename*=UTF-8''{quote(fname)}")
+        return Response(data, mimetype=ctype, headers=headers)
     file_id = m.get("file_id")
     url = tg.refresh_file_url(file_id) if file_id else ""
     if not url:
@@ -614,6 +677,8 @@ def chat_file_view(cid, mid):
 def avatar(cid):
     """Proxy Telegram profile photo (re-fetches a stale file_id once)."""
     _valid_id(cid)
+    if account.is_acct(cid):
+        return ("", 204)                             # no profile photos for P2P chats
     meta = fb.get(f"support/{cid}/meta") or {}
     file_id = meta.get("photo_file_id") or ""
     if not file_id:
@@ -704,11 +769,20 @@ def chat_unblock(cid):
     return jsonify(tg.unblock_user(cid))
 
 
+@app.route("/chat/<cid>/ai", methods=["POST"])
+@login_required
+def chat_ai(cid):
+    """Per-chat AI switch. off=1 -> the AI never answers this user."""
+    _valid_id(cid)
+    off = request.form.get("off", "0") in ("1", "true", "yes", "on")
+    return jsonify(tg.set_chat_ai(cid, off))
+
+
 @app.route("/unread_count")
 @login_required
 def unread_count():
-    total = sum(int(c.get("unread") or 0) for c in _load_all_chats())
-    return jsonify({"count": total})
+    u = _unread_by_tab()
+    return jsonify({"count": u["bot"] + u["account"], "bot": u["bot"], "account": u["account"]})
 
 
 # ── Broadcast ─────────────────────────────────────────────────────────────────
@@ -851,6 +925,8 @@ def settings_view():
         super_login_ok=bool(config.SUPER_ADMIN_USERNAME and config.SUPER_ADMIN_PASSWORD),
         admin_login_ok=bool(config.ADMIN_USERNAME and config.ADMIN_PASSWORD),
         super_user=config.SUPER_ADMIN_USERNAME, admin_user=config.ADMIN_USERNAME,
+        acct=account.status(), ai_keys_text=ai.keys_text(), ai_models=config.GROQ_MODELS,
+        firebase_admin=fb.admin_mode(),
     )
 
 
@@ -862,6 +938,89 @@ def settings_save():
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)})
     return jsonify({"ok": True, "settings": s})
+
+
+# ── Personal account linking (super admin only) ──────────────────────────────
+def _acct_call(fn, *args):
+    try:
+        res = fn(*args)
+        return jsonify({"ok": True, **(res if isinstance(res, dict) else {}), "account": account.status()})
+    except account.AccountError as e:
+        return jsonify({"ok": False, "error": str(e), "account": account.status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "account": account.status()})
+
+
+@app.route("/settings/api/account/status")
+@super_required
+def account_status():
+    return jsonify({"ok": True, "account": account.status()})
+
+
+@app.route("/settings/api/account/send-code", methods=["POST"])
+@super_required
+def account_send_code():
+    return _acct_call(account.send_code, (request.get_json(silent=True) or {}).get("phone", ""))
+
+
+@app.route("/settings/api/account/verify-code", methods=["POST"])
+@super_required
+def account_verify_code():
+    return _acct_call(account.verify_code, (request.get_json(silent=True) or {}).get("code", ""))
+
+
+@app.route("/settings/api/account/verify-password", methods=["POST"])
+@super_required
+def account_verify_password():
+    return _acct_call(account.verify_password, (request.get_json(silent=True) or {}).get("password", ""))
+
+
+@app.route("/settings/api/account/unlink", methods=["POST"])
+@super_required
+def account_unlink():
+    return _acct_call(account.unlink)
+
+
+# ── AI keys (super admin only; the keys never reach the admin role) ──────────
+@app.route("/settings/api/ai-keys", methods=["POST"])
+@super_required
+def ai_keys_save():
+    try:
+        n = ai.set_keys((request.get_json(silent=True) or {}).get("keys", ""))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)})
+    return jsonify({"ok": True, "count": n})
+
+
+# ── AI Support: questions answered by the AI ─────────────────────────────────
+@app.route("/ai")
+@login_required
+def ai_page():
+    return render_template("ai.html", is_super_view=current_role() == "super")
+
+
+@app.route("/ai/api/history")
+@login_required
+def ai_history_api():
+    kind = request.args.get("range", "today")
+    if kind not in ("today", "yesterday", "all", "custom"):
+        kind = "today"
+    try:
+        a, b = ai.day_range(kind, request.args.get("start", ""), request.args.get("end", ""))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Pick a valid date"})
+    src = request.args.get("source", "all")
+    sources = ("bot", "account") if current_role() == "super" else ("bot",)   # P2P data: super only
+    if src in sources:
+        sources = (src,)
+    rows = ai.history(a, b, sources=sources, limit=500)
+    return jsonify({
+        "ok": True, "range": kind, "total": len(rows),
+        "bot": sum(1 for r in rows if r.get("source") == "bot"),
+        "account": sum(1 for r in rows if r.get("source") == "account"),
+        "rows": [{**r, "chat_id": r.get("chat_id"),
+                  "link": f"/chat/{r.get('cid')}" if r.get("cid") else ""} for r in rows],
+    })
 
 
 # ── Activity logs: two separate logs ─────────────────────────────────────────
@@ -911,6 +1070,10 @@ def _start_bot_once():
         if _bot_thread_started:
             return
         threading.Thread(target=_warm_up, daemon=True, name="warmup").start()
+        try:
+            account.start()                    # reconnect the personal account, if linked
+        except Exception as e:
+            print(f"[ACCOUNT] start: {e}")
         if not tg.bot:
             print("BOT_TOKEN not set — support bot will not start.")
             return

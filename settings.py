@@ -22,6 +22,19 @@ import firebase_helper as fb
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
+DEFAULT_PROMPT_BOT = (
+    "You are the friendly customer-support assistant of this service. "
+    "Answer briefly and clearly in the same language as the user. "
+    "If you are not sure, or the request needs a human, say that a team member will reply soon. "
+    "Never invent prices, links, policies or promises."
+)
+DEFAULT_PROMPT_ACCOUNT = (
+    "You are an automated assistant replying in a personal chat on behalf of its owner. "
+    "Keep answers short, polite and natural, in the same language as the other person. "
+    "If asked, say you are an automated assistant and that the owner will reply later. "
+    "Never share private information and never make commitments for the owner."
+)
+
 DEFAULTS = {
     # ── General ──
     "panel_name": config.PANEL_NAME,
@@ -46,6 +59,14 @@ DEFAULTS = {
     "notify_edit": True,
     "broadcast_confirm": True,              # /broadcast in Telegram asks "Send? Yes/No"
     "broadcast_delay": config.BROADCAST_DELAY,
+    "notify_admin_role": True,              # /bot killadmin | /bot allowadmin
+    # ── Personal account / AI ──
+    "forward_channel": "",                  # media from the PERSONAL ACCOUNT's P2P chats goes here
+    "forward_channel_bot": "",              # media sent to the BOT goes here (a different channel / group)
+    "ai_bot_enabled": True,                 # /bot onai | /bot offai
+    "ai_account_enabled": False,            # /account onai | /account offai
+    "ai_prompt_bot": DEFAULT_PROMPT_BOT,
+    "ai_prompt_account": DEFAULT_PROMPT_ACCOUNT,
     # ── Anti-spam ──
     "spam_max_msgs": config.ANTI_SPAM_MAX_MSGS,
     "spam_window": config.ANTI_SPAM_WINDOW_SECONDS,
@@ -78,8 +99,32 @@ _NUMS = {
     "spam_max_strikes": (int, 1, 20),
 }
 _BOOLS = {"animations", "notify_sound", "notify_new_message", "forward_media",
-          "notify_reaction", "notify_edit", "broadcast_confirm"}
-_STRS = {"panel_name": 40, "site_title": 70, "tagline": 40, "logo_emoji": 8, "auto_reply": 500}
+          "notify_reaction", "notify_edit", "broadcast_confirm",
+          "notify_admin_role", "ai_bot_enabled", "ai_account_enabled"}
+_STRS = {"panel_name": 40, "site_title": 70, "tagline": 40, "logo_emoji": 8, "auto_reply": 500,
+         "ai_prompt_bot": 4000, "ai_prompt_account": 4000}
+_CHANNEL_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9_]{3,31}|-100\d{5,})$")
+
+
+def normalize_channel(v) -> str:
+    """Accepts '@name', 't.me/name', 'https://t.me/name', 'https://t.me/c/123456789/5' or a
+    -100… id and returns 'name' / '-100…'. '' = off. ValueError for anything else
+    (invite links cannot be used: they carry no chat id)."""
+    v = str(v or "").strip()
+    if not v:
+        return ""
+    if re.search(r"(?:t\.me|telegram\.me)/(?:\+|joinchat/)", v, re.I) or v.startswith("+"):
+        raise ValueError("Invite links can't be used — enter the public link (t.me/name) or the numeric -100… id")
+    m = re.match(r"^(?:https?://)?(?:t\.me|telegram\.me)/c/(\d+)", v, re.I)
+    if m:
+        return "-100" + m.group(1)
+    v = re.sub(r"^(?:https?://)?(?:t\.me|telegram\.me)/", "", v, flags=re.I)
+    v = v.split("/")[0].split("?")[0].lstrip("@").strip()
+    if not v:
+        return ""
+    if not _CHANNEL_RE.match(v):
+        raise ValueError("Enter the channel / group link like https://t.me/mychannel (or its -100… id)")
+    return v
 
 _lock = threading.Lock()
 _cache = {"data": None, "ts": 0.0}
@@ -119,6 +164,8 @@ def _clean(raw: dict) -> dict:
                 out[k] = max(lo, min(hi, typ(v)))
             elif k in _STRS:
                 out[k] = str(v).strip()[: _STRS[k]]
+            elif k in ("forward_channel", "forward_channel_bot"):
+                out[k] = normalize_channel(v)
             elif k in ("accent", "accent2"):
                 out[k] = v if isinstance(v, str) and _HEX.match(v) else default
             elif k == "theme":
@@ -130,16 +177,35 @@ def _clean(raw: dict) -> dict:
     return out
 
 
-def load(force: bool = False) -> dict:
-    now = time.time()
-    with _lock:
-        if not force and _cache["data"] is not None and now - _cache["ts"] < TTL:
-            return _cache["data"]
+_refreshing = threading.Lock()
+
+
+def _fetch() -> dict:
     s = _clean(fb.get("settings/site"))
     _apply(s)
     with _lock:
         _cache["data"], _cache["ts"] = s, time.time()
     return s
+
+
+def _refresh_bg():
+    try:
+        _fetch()
+    finally:
+        _refreshing.release()
+
+
+def load(force: bool = False) -> dict:
+    """Cached. When the cache is stale the OLD value is returned immediately and refreshed in
+    the background — a Telegram handler never waits for a Firebase round-trip here."""
+    now = time.time()
+    with _lock:
+        data, age = _cache["data"], now - _cache["ts"]
+    if data is not None and not force:
+        if age >= TTL and _refreshing.acquire(blocking=False):
+            fb.bg(_refresh_bg)
+        return data
+    return _fetch()
 
 
 def validate_update(updates: dict) -> dict:
@@ -157,6 +223,8 @@ def validate_update(updates: dict) -> dict:
             raise ValueError("Website name cannot be empty")
         if k == "theme" and updates[k] not in ("dark", "light", "auto"):
             raise ValueError("Theme must be dark, light or auto")
+        if k in ("forward_channel", "forward_channel_bot"):
+            normalize_channel(updates[k])           # ValueError -> readable message
         result[k] = clean[k]
     return result
 

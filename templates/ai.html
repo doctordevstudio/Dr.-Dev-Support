@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}AI Support{% endblock %}
+{% block page_title %}✨ AI Support{% endblock %}
+{% block extra_head %}
+<style>
+.ai-top{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.ai-top h2{font-size:1.3rem;font-weight:800;letter-spacing:-.02em;background:var(--grad);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;background-clip:text}
+.ai-top p{color:var(--muted);font-size:.78rem;margin-top:4px}
+.rng{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.rng button,.src button{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:8px 16px;border-radius:99px;
+  font-size:.8rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .18s}
+.rng button:hover,.src button:hover{border-color:var(--accent);color:var(--text)}
+.rng button.on,.src button.on{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(var(--accent-rgb),.35)}
+.src{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.custom{display:none;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}
+.custom.open{display:flex}
+.custom label{display:block;font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:5px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px 14px}
+.stat b{display:block;font-size:1.3rem;font-weight:800}
+.stat span{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.qa{padding:16px 18px;margin-bottom:10px;animation:fadeUp .3s both}
+.qa-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:.78rem;color:var(--muted)}
+.qa-head a{color:var(--text);font-weight:700;text-decoration:none}
+.qa-head a:hover{color:var(--accent)}
+.qa-head code{font-size:.7rem}
+.src-tag{font-size:.64rem;font-weight:800;padding:2px 9px;border-radius:99px;letter-spacing:.04em}
+.src-tag.bot{background:rgba(var(--accent-rgb),.15);color:var(--accent)}
+.src-tag.account{background:rgba(61,214,208,.15);color:var(--accent3)}
+.qa-time{margin-left:auto;font-size:.72rem}
+.q,.a{padding:10px 13px;border-radius:12px;font-size:.88rem;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.q{background:var(--card2);border:1px solid var(--border);margin-bottom:8px}
+.a{background:rgba(var(--accent-rgb),.09);border:1px solid rgba(var(--accent-rgb),.25)}
+.lbl{display:block;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:4px}
+</style>
+{% endblock %}
+{% block content %}
+<div class="ai-top">
+  <div><h2 id="ttl">Questions answered by AI</h2><p id="sub">&nbsp;</p></div>
+</div>
+<div class="rng" id="rng">
+  <button data-r="today" class="on">Today</button>
+  <button data-r="yesterday">Yesterday</button>
+  <button data-r="all">All time</button>
+  <button data-r="custom">Custom range</button>
+</div>
+<div class="custom" id="custom">
+  <div><label>From</label><input type="date" id="dFrom" class="form-control"/></div>
+  <div><label>To</label><input type="date" id="dTo" class="form-control"/></div>
+  <button class="btn btn-primary" id="dGo"><i class="fa-solid fa-magnifying-glass"></i> Show</button>
+</div>
+{% if is_super_view %}
+<div class="src" id="src">
+  <button data-s="all" class="on">All</button>
+  <button data-s="bot">🤖 Bot users</button>
+  <button data-s="account">📱 P2P chats</button>
+</div>
+{% endif %}
+<div class="stats">
+  <div class="stat"><b id="sTot">0</b><span>Answered</span></div>
+  <div class="stat"><b id="sBot">0</b><span>Bot users</span></div>
+  {% if is_super_view %}<div class="stat"><b id="sAcc">0</b><span>P2P chats</span></div>{% endif %}
+</div>
+<div id="list"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+const $ = id => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if(c) e.className = c; if(x != null) e.textContent = x; return e; };
+let range = 'today', source = 'all', seq = 0;
+const today = new Date().toISOString().slice(0, 10);
+$('dFrom').value = today; $('dTo').value = today;
+const LABEL = {today: 'Today', yesterday: 'Yesterday', all: 'All time', custom: 'Custom range'};
+
+async function load(){
+  const my = ++seq;
+  const qs = new URLSearchParams({range, source});
+  if(range === 'custom'){ qs.set('start', $('dFrom').value); qs.set('end', $('dTo').value); }
+  $('list').textContent = ''; for(let i = 0; i < 3; i++){ const s = el('div', 'skeleton'); s.style.cssText = 'height:110px;margin-bottom:10px;border-radius:var(--radius)'; $('list').appendChild(s); }
+  try{
+    const d = await api('/ai/api/history?' + qs);
+    if(my !== seq) return;
+    if(!d.ok){ toast(d.error || 'Could not load', 'err'); $('list').textContent = ''; return; }
+    $('sTot').textContent = d.total; $('sBot').textContent = d.bot;
+    if($('sAcc')) $('sAcc').textContent = d.account;
+    $('sub').textContent = LABEL[range] + ' · ' + d.total + ' question' + (d.total === 1 ? '' : 's') + ' answered';
+    const list = $('list'); list.textContent = '';
+    if(!d.rows.length){
+      const e = el('div', 'empty-state'); e.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>';
+      e.appendChild(el('p', '', 'No AI answers in this range')); list.appendChild(e); return;
+    }
+    d.rows.forEach(r => {
+      const c = el('div', 'card qa'), h = el('div', 'qa-head');
+      h.appendChild(el('span', 'src-tag ' + r.source, r.source === 'account' ? 'P2P' : 'BOT'));
+      if(r.link){ const a = el('a', '', r.name || 'Unknown'); a.href = r.link; h.appendChild(a); } else h.appendChild(el('b', '', r.name || 'Unknown'));
+      if(r.username) h.appendChild(el('span', '', '@' + r.username));
+      const id = el('code', '', 'ID ' + r.chat_id); h.appendChild(id);
+      h.appendChild(el('span', 'qa-time', r.time));
+      c.appendChild(h);
+      const q = el('div', 'q'); q.appendChild(el('span', 'lbl', 'Question')); q.appendChild(document.createTextNode(r.question)); c.appendChild(q);
+      const a = el('div', 'a'); a.appendChild(el('span', 'lbl', 'Answered by AI')); a.appendChild(document.createTextNode(r.answer)); c.appendChild(a);
+      list.appendChild(c);
+    });
+  }catch(e){ if(my === seq) toast(e.message, 'err'); }
+}
+$('rng').querySelectorAll('button').forEach(b => b.onclick = () => {
+  range = b.dataset.r;
+  $('rng').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  $('custom').classList.toggle('open', range === 'custom');
+  if(range !== 'custom') load();
+});
+$('dGo').onclick = load;
+if($('src')) $('src').querySelectorAll('button').forEach(b => b.onclick = () => {
+  source = b.dataset.s; $('src').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); load();
+});
+load();
+})();
+</script>
+{% endblock %}

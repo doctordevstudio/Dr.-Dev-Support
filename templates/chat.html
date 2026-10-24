@@ -78,6 +78,18 @@
 .bubble-wrap.swipe-back{transition:transform .2s ease}
 
 /* ── quoted message inside a bubble ── */
+.edit-hist{margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.14);border-left:3px solid var(--yellow);
+  font-size:.74rem;display:flex;flex-direction:column;gap:6px;white-space:normal}
+.bubble.user .edit-hist{background:rgba(var(--accent-rgb),.07)}
+.edit-hist .eh-title{font-weight:800;color:var(--yellow);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em}
+.edit-hist .eh-row{opacity:.92}
+.edit-hist .eh-row b{display:block;font-size:.66rem;opacity:.75;font-weight:700}
+.edit-hist .eh-row .eh-t{white-space:pre-wrap;word-break:break-word;display:block}
+.edit-hist .eh-row.old .eh-t{text-decoration:line-through;opacity:.7}
+.tg-del{margin-top:7px;font-size:.72rem;font-weight:700;color:var(--red);display:flex;align-items:center;gap:6px;white-space:normal}
+.action-bar .rx-grid .rx-glabel{grid-column:1/-1;font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);padding:6px 2px 2px}
+.action-bar .rx-grid{max-height:230px;overflow-y:auto}
 .reply-quote{display:block;border-left:3px solid var(--accent3);background:rgba(0,0,0,.16);border-radius:8px;
   padding:5px 9px;font-size:.76rem;cursor:pointer;max-width:100%;text-align:left;line-height:1.35}
 .bubble.user .reply-quote{background:rgba(var(--accent-rgb),.09);border-left-color:var(--accent)}
@@ -270,13 +282,18 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
     <button class="btn btn-secondary btn-sm" id="searchToggle" onclick="toggleSearch()" title="Search in this chat">
       <i class="fa-solid fa-magnifying-glass"></i> Search</button>
-    {% if meta.blocked %}
-      <button class="btn btn-secondary btn-sm" onclick="setBlock(false)">
-        <i class="fa-solid fa-lock-open"></i> Unblock</button>
-    {% else %}
-      <button class="btn btn-danger btn-sm" onclick="setBlock(true)">
-        <i class="fa-solid fa-ban"></i> Block User</button>
-    {% endif %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" id="aiBtn" onclick="toggleAi()"></button>
+      {% if meta.source != 'account' %}
+        {% if meta.blocked %}
+          <button class="btn btn-secondary btn-sm" onclick="setBlock(false)">
+            <i class="fa-solid fa-lock-open"></i> Unblock</button>
+        {% else %}
+          <button class="btn btn-danger btn-sm" onclick="setBlock(true)">
+            <i class="fa-solid fa-ban"></i> Block User</button>
+        {% endif %}
+      {% endif %}
+    </div>
   </div>
 
   <div class="search-bar" id="searchBar">
@@ -375,12 +392,14 @@ mark.hl{background:rgba(255,214,10,.85);color:#111;border-radius:3px;padding:0 1
           <div class="profile-meta-val" id="msgCount">{{ total }}</div></div>
       </div>
       <div class="profile-actions">
+        {% if meta.source != 'account' %}
         {% if meta.blocked %}
           <button class="btn btn-secondary btn-sm" onclick="setBlock(false);closeModal('profileModal')">
             <i class="fa-solid fa-lock-open"></i> Unblock</button>
         {% else %}
           <button class="btn btn-danger btn-sm" onclick="setBlock(true);closeModal('profileModal')">
             <i class="fa-solid fa-ban"></i> Block User</button>
+        {% endif %}
         {% endif %}
         {% if meta.username %}
           <a class="btn btn-secondary btn-sm" href="https://t.me/{{ meta.username }}" target="_blank" rel="noopener">
@@ -476,6 +495,27 @@ function fillBubble(bubble, m){
     bubble.appendChild(a);
   }
   if(m.text){ const t = el('div', 'msg-text'); appendText(t, m.text); bubble.appendChild(t); }
+  // every version of an edited message stays visible (nothing is overwritten)
+  if(m.versions && m.versions.length > 1){
+    const box = el('div', 'edit-hist');
+    box.appendChild(el('div', 'eh-title', '✏️ Edit history (' + (m.versions.length - 1) + ')'));
+    m.versions.forEach((v, i) => {
+      const last = i === m.versions.length - 1;
+      const row = el('div', 'eh-row' + (last ? '' : ' old'));
+      row.appendChild(el('b', '', (i === 0 ? 'Original' : 'Edit ' + i) + (last ? ' · current' : '') + (v.at ? ' · ' + v.at : '')));
+      if(!last){ const t = el('span', 'eh-t'); appendText(t, v.text || '(empty)'); row.appendChild(t); }
+      else row.appendChild(el('span', 'eh-t', 'shown above'));
+      box.appendChild(row);
+    });
+    bubble.appendChild(box);
+  }
+  // deleted on Telegram by the other person: the message stays, a 🚫 marks it
+  if(m.tg_deleted){
+    const d = el('div', 'tg-del', '🚫 ' + (m.tg_deleted_by === 'me' ? 'Deleted on Telegram' : 'Deleted by user') +
+                 (m.tg_deleted_at ? ' · ' + m.tg_deleted_at : ''));
+    d.title = 'Kept in the database — only marked as deleted';
+    bubble.appendChild(d);
+  }
 }
 
 // time · edited · ticks (outside the bubble, like WhatsApp)
@@ -483,8 +523,9 @@ function buildMeta(meta, m){
   meta.textContent = '';
   if(m.broadcast) meta.appendChild(document.createTextNode('📢'));
   if(m.from === 'admin' && m.sent_by && !m.deleted){
-    const by = el('span', 'by-tag', m.sent_by === 'super' ? '👑 Super Admin' : '🛡️ Admin');
-    by.title = 'Sent by the ' + (m.sent_by === 'super' ? 'super admin' : 'admin');
+    const lbl = {super: '👑 Super Admin', admin: '🛡️ Admin', ai: '🤖 AI'}[m.sent_by] || '🛡️ Admin';
+    const by = el('span', 'by-tag', lbl);
+    by.title = 'Sent by ' + ({super: 'the super admin', admin: 'the admin', ai: 'the AI assistant'}[m.sent_by] || 'the admin');
     meta.appendChild(by);
   }
   if(ROLE === 'super' && m.hidden_admin && !m.deleted){
@@ -636,9 +677,10 @@ function loadMedia(placeholder, kind, mid){
 function updateExisting(m){
   const old = msgs.get(m.msg_id), wrap = els.get(m.msg_id);
   if(!old || !wrap) return;
-  const rebuild = !!old.deleted !== !!m.deleted || (old.text || '') !== (m.text || '');
+  const rebuild = !!old.deleted !== !!m.deleted || (old.text || '') !== (m.text || '') ||
+                  !!old.tg_deleted !== !!m.tg_deleted || (old.versions || []).length !== (m.versions || []).length;
   const metaChanged = rebuild || !!old.edited !== !!m.edited || !!old.read !== !!m.read ||
-                      !!old.hidden_admin !== !!m.hidden_admin;
+                      !!old.hidden_admin !== !!m.hidden_admin || !!old.tg_deleted !== !!m.tg_deleted;
   const rxChanged = JSON.stringify(old.reactions) !== JSON.stringify(m.reactions);
   Object.assign(old, m);
   wrap.classList.toggle('is-deleted', !!old.deleted);
@@ -682,7 +724,8 @@ window.addEventListener('pagehide', () => clearInterval(pollTimer));
 // ── Floating action bar ──
 const bar = el('div', 'action-bar'); document.body.appendChild(bar);
 let barMid = null, hideTimer = null, shownAt = 0;
-const QUICK = 6;                      // first six reactions are always visible, the rest sit behind "+"
+const GROUPS = (DATA.reaction_groups && DATA.reaction_groups.length) ? DATA.reaction_groups : [['All', REACTIONS]];
+const QUICKSET = GROUPS[0][1];           // the first group is always visible, the rest sits behind "➕"
 function buildBar(m){
   bar.textContent = ''; bar.classList.remove('expanded');
   const mine = (m.reactions && m.reactions.admin) || [];
@@ -692,8 +735,8 @@ function buildBar(m){
     b.onclick = ev => { ev.stopPropagation(); hideBar(); reactTo(m.msg_id, e); };
     return b;
   };
-  REACTIONS.slice(0, QUICK).forEach(e => bar.appendChild(mkBtn(e)));
-  if(REACTIONS.length > QUICK){
+  QUICKSET.forEach(e => bar.appendChild(mkBtn(e)));
+  if(GROUPS.length > 1){
     const more = el('button', 'emoji-btn more-btn', '➕'); more.title = 'More reactions';
     more.onclick = ev => { ev.stopPropagation(); bar.classList.toggle('expanded'); placeBar(); };
     bar.appendChild(more);
@@ -715,9 +758,12 @@ function buildBar(m){
   d.innerHTML = '<i class="fa-solid fa-trash"></i>';
   d.onclick = ev => { ev.stopPropagation(); hideBar(); deleteMsg(m.msg_id); };
   bar.appendChild(d);
-  if(REACTIONS.length > QUICK){
+  if(GROUPS.length > 1){
     const grid = el('div', 'rx-grid');
-    REACTIONS.slice(QUICK).forEach(e => grid.appendChild(mkBtn(e)));
+    GROUPS.slice(1).forEach(([label, list]) => {
+      grid.appendChild(el('div', 'rx-glabel', label));
+      list.forEach(e => grid.appendChild(mkBtn(e)));
+    });
     bar.appendChild(grid);
   }
 }
@@ -815,6 +861,24 @@ container.addEventListener('touchcancel', () => endSwipe(true));
 
 // ── Reply state (preview bar above the composer) ──
 let replyTo = null;
+let aiOff = !!DATA.ai_off;
+function paintAi(){
+  const b = $('aiBtn'); if(!b) return;
+  b.className = 'btn btn-sm ' + (aiOff ? 'btn-danger' : 'btn-secondary');
+  b.innerHTML = '<i class="fa-solid fa-robot"></i> ' + (aiOff ? 'AI off for this chat' : (DATA.ai_global ? 'AI on' : 'AI on (global off)'));
+  b.title = aiOff ? 'The AI ignores this user — click to let it answer again'
+                  : (DATA.ai_global ? 'The AI answers this user — click to switch it off for this chat'
+                                    : 'AI is switched off globally (Settings or /bot offai, /account offai)');
+}
+window.toggleAi = async function(){
+  const fd = new FormData(); fd.append('off', aiOff ? '0' : '1');
+  try{
+    const d = await api(`/chat/${CID}/ai`, {method: 'POST', body: fd});
+    if(d.ok){ aiOff = !!d.ai_off; paintAi(); toast(aiOff ? 'AI will ignore this chat' : 'AI will answer this chat', 'ok'); }
+    else toast(d.error || 'Could not change', 'err');
+  }catch(e){ toast(e.message, 'err'); }
+};
+paintAi();
 const DEFAULT_PH = $('msgInput').placeholder;
 function startReply(mid, ask){
   const m = msgs.get(mid); if(!m || m.deleted) return;
@@ -830,7 +894,7 @@ function startReply(mid, ask){
 }
 window.cancelReply = function(){
   replyTo = null; $('replyBar').classList.remove('open');
-  $('msgInput').placeholder = DEFAULT_PH;
+  $('msgInput').placeholder = DEFAULT_PH + (TOUCH ? '  (Enter = new line)' : '');
 };
 
 // ── Reactions ──
@@ -976,9 +1040,13 @@ function resetList(list, more){
 
 // ── Composer ──
 window.autoResize = function(e){ e.style.height = 'auto'; e.style.height = Math.min(e.scrollHeight, 150) + 'px'; };
+// Phones: Enter is a new line (type as many lines as you like) and the Send button sends.
+// Desktop: Enter sends, Shift+Enter adds a line.
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;
+if(TOUCH) $('msgInput').placeholder = ($('msgInput').placeholder || 'Type a message…') + '  (Enter = new line)';
 window.handleKey = function(e){
   if(e.key === 'Escape' && replyTo){ cancelReply(); return; }
-  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); }
+  if(e.key === 'Enter' && !e.shiftKey && !e.isComposing && !TOUCH){ e.preventDefault(); sendMsg(); }
 };
 function fmtSize(b){
   if(b < 1024) return b + ' B';
@@ -1077,11 +1145,14 @@ window.sendMsg = async function(){
 
 // ── Emoji picker for the message box ──
 const EMOJI_SETS = [
-  ['😀', 'Smileys', '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖'],
-  ['👍', 'Hands', '👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 ✍️ 💪 👏 🙌 👐 🤲 🫶 🫡 🫰 🤌 🤏 👊 ✊ 🤛 🤜 🙇 🙋 🤷 🤦 💁 🙆 🙅 👀 🧠 👣'],
-  ['❤️', 'Hearts & symbols', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 ✅ ❌ ⚠️ ❓ ❗ ✨ ⭐ 🌟 💫 🔥 ⚡ 💥 💢 💤 🎉 🎊 🏆 🥇 🎯 🔔 🆗 🆒 🆕 🔴 🟢 🔵 🟡 ➕ ➖ ✔️ ➡️ ⬅️ ⬆️ ⬇️ 🔁 🔄'],
-  ['💡', 'Objects', '📱 💻 🖥️ ⌨️ 🖱️ 📷 🎥 📞 ☎️ 📧 ✉️ 📎 📌 🔗 🔒 🔓 🔑 🛠️ ⚙️ 🧰 💡 🔋 📶 🌐 🧾 📄 📁 📅 ⏰ ⌛ 💰 💳 🎁 🛒 🚀 🚗 ✈️ 🏠 📦 📝 📊 📈 🔍 🎧 🎮 📚 🗂️'],
-  ['🐶', 'Nature & food', '🐶 🐱 🦁 🐼 🦄 🐢 🐍 🦋 🐳 🐧 🦊 🐵 🌸 🌹 🌻 🌈 ☀️ 🌙 ☁️ 🌧️ ❄️ 🍎 🍌 🍓 🍉 🍕 🍔 🍟 🌭 🍿 🍩 🍪 🎂 ☕ 🍵 🥤 🍺 🍾 🥂']
+  ['😀', 'Smileys', '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 🫠 😉 😊 😇 🥰 😍 🤩 😘 😗 ☺️ 😚 😙 🥲 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🫢 🫣 🤫 🤔 🫡 🤐 🤨 😐 😑 😶 🫥 😏 😒 🙄 😬 😮‍💨 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 😵‍💫 🤯 🤠 🥳 🥸 😎 🤓 🧐 😕 🫤 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 🥹 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾'],
+  ['👍', 'Hands & people', '👍 👎 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 🫵 ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 ✍️ 💅 🤳 💪 🦾 👏 🙌 🫶 👐 🤲 👊 ✊ 🤛 🤜 🫳 🫴 👀 👁️ 🧠 🫀 🫁 🦷 👅 👄 🙇 🤦 🤷 🙋 💁 🙆 🙅 🙎 🙍 💆 💇 🚶 🏃 💃 🕺 👯 🧘 👶 🧒 👦 👧 🧑 👨 👩 🧓 👴 👵'],
+  ['❤️', 'Hearts & symbols', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 ❤️‍🔥 ❣️ 💔 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 ☯️ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ ⛎ ✅ ❌ ❎ ⭕ 🛑 ⚠️ 🚫 ❓ ❔ ❗ ❕ ‼️ ⁉️ ✔️ ➕ ➖ ➗ ✖️ ♾️ 💲 💱 ™️ ©️ ®️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔶 🔷 💠 🔘 ✨ ⭐ 🌟 💫 ⚡ 🔥 💥 💢 💦 💨 💤 💬 💭 🗯️ 🆗 🆒 🆕 🆓 🆙 🔝 🔜 🔚 🔙 🔛'],
+  ['🐶', 'Animals & nature', '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🪱 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🕷️ 🦂 🐢 🐍 🦎 🦖 🐙 🦑 🦐 🦀 🐡 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🐘 🦛 🦏 🐪 🐫 🦒 🦘 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🐐 🦌 🐕 🐈 🌵 🎄 🌲 🌳 🌴 🌱 🌿 ☘️ 🍀 🎍 🍃 🍂 🍁 🍄 🌾 💐 🌷 🌹 🥀 🌺 🌸 🌼 🌻 🌞 🌝 🌛 🌜 🌚 🌕 🌙 ⭐ ☀️ ⛅ ☁️ 🌦️ 🌧️ ⛈️ 🌩️ ❄️ ☃️ ⛄ 🌈 🌊 🔥'],
+  ['🍔', 'Food & drink', '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌶️ 🫑 🌽 🥕 🧄 🧅 🥔 🍠 🥐 🥯 🍞 🥖 🧀 🥚 🍳 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🌮 🌯 🥙 🧆 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🍤 🍙 🍚 🍘 🍥 🥠 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🥜 🍯 🥛 🍼 ☕ 🍵 🧃 🥤 🧋 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🍾 🧊 🥄 🍴 🍽️'],
+  ['⚽', 'Activities', '⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🎱 🏓 🏸 🏒 🥅 ⛳ 🏹 🎣 🥊 🥋 ⛸️ 🎿 🛷 🏂 🏋️ 🤸 🤺 🏇 🧘 🏄 🏊 🚴 🏆 🥇 🥈 🥉 🏅 🎖️ 🎗️ 🎫 🎟️ 🎪 🎭 🎨 🎬 🎤 🎧 🎼 🎹 🥁 🎷 🎺 🎸 🎻 🎲 ♟️ 🎯 🎳 🎮 🕹️ 🧩 🪁 🎁 🎀 🎈 🎉 🎊 🎆 🎇 🧨 🪄'],
+  ['🚗', 'Travel & places', '🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🏍️ 🛵 🚲 🛴 🚨 🚔 🚍 🚘 🚖 ✈️ 🛫 🛬 🚀 🛸 🚁 ⛵ 🚤 🛥️ 🚢 ⚓ 🚂 🚆 🚇 🚊 🚉 🏠 🏡 🏢 🏬 🏦 🏥 🏨 🏪 🏫 🏭 🏰 🏯 🗼 🗽 ⛪ 🕌 🕍 ⛩️ 🌋 🏔️ ⛰️ 🏕️ 🏖️ 🏝️ 🌅 🌄 🌇 🌃 🌉 🎡 🎢 ⛲ 🗺️ 🧭 🌍 🌎 🌏'],
+  ['💡', 'Objects', '📱 📲 ☎️ 📞 📟 📠 🔋 🔌 💻 🖥️ 🖨️ ⌨️ 🖱️ 💽 💾 💿 📷 📸 📹 🎥 📺 📻 ⏰ ⏱️ ⌛ ⏳ 📡 🔦 💡 🕯️ 💰 💴 💵 💶 💷 💳 🧾 💎 ⚖️ 🔧 🔨 ⚒️ 🛠️ ⚙️ 🧰 🧲 🔫 💣 🔪 🛡️ 🔒 🔓 🔏 🔑 🗝️ 📦 📫 📬 📧 ✉️ 📨 📩 📝 📄 📃 📑 📊 📈 📉 📅 📆 📁 📂 🗂️ 📋 📌 📍 📎 🖇️ 📏 📐 ✂️ 🗑️ 📖 📚 🔖 🔗 🛒 🏷️ 🧹 🧺 🧼 🪥 🛁 🚿 🔔 🔕 📣 📢 🔍 🔎'],
 ];
 (function buildEmojiPicker(){
   const tabs = $('emojiTabs'), grid = $('emojiGrid');

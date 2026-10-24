@@ -46,6 +46,13 @@
 .sys b{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:4px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
 .dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}.dot.no{background:var(--red)}
+.link-step{display:none;margin-top:14px}
+.link-step.open{display:block;animation:fadeUp .25s both}
+.link-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.link-row .field{flex:1;min-width:220px}
+.linked-badge{display:inline-flex;align-items:center;gap:10px;padding:12px 18px;border-radius:12px;font-weight:800;
+  background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:var(--green)}
+textarea.mono{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;line-height:1.6;white-space:pre;overflow:auto}
 </style>
 {% endblock %}
 
@@ -121,6 +128,77 @@
       credentials is logged out automatically. Passwords are never shown or stored in the database.</div>
   </div>
 
+  <!-- Personal account -->
+  <div class="card set-card" id="account">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-2)"><i class="fa-solid fa-mobile-screen"></i></div>
+      <div><h3>Link your account</h3><p>Chat with your private (P2P) contacts from the Account tab</p></div></div>
+    {% if not acct.telethon %}
+      <div class="sec-warn"><i class="fa-solid fa-triangle-exclamation"></i> The <code>telethon</code> package is not installed — run <code>pip install -r requirements.txt</code>.</div>
+    {% elif not acct.configured %}
+      <div class="sec-warn"><i class="fa-solid fa-triangle-exclamation"></i> Add <code>TG_API_ID</code> and <code>TG_API_HASH</code> (from my.telegram.org) to the environment variables first.</div>
+    {% endif %}
+    <div id="acctLinked" style="display:{{ 'block' if acct.linked else 'none' }}">
+      <div class="linked-badge"><i class="fa-solid fa-circle-check"></i> Mobile linked</div>
+      <div class="save-row"><button class="btn btn-secondary" onclick="acctUnlink(this)"><i class="fa-solid fa-link-slash"></i> Unlink</button></div>
+    </div>
+    <div id="acctForm" style="display:{{ 'none' if acct.linked else 'block' }}">
+      <div class="link-row">
+        <div class="field"><label class="lb">Mobile number</label>
+          <input class="form-control" id="acPhone" type="tel" inputmode="tel" placeholder="+919876543210" autocomplete="off"/></div>
+        <button class="btn btn-primary" id="acSend" onclick="acctSendCode(this)"><i class="fa-solid fa-paper-plane"></i> Send OTP</button>
+      </div>
+      <div class="hint" style="margin-top:6px">The OTP arrives inside Telegram (not as an SMS).</div>
+      <div class="link-step" id="stCode"><div class="link-row">
+        <div class="field"><label class="lb">OTP code</label>
+          <input class="form-control" id="acCode" type="text" inputmode="numeric" maxlength="8" placeholder="12345" autocomplete="one-time-code"/></div>
+        <button class="btn btn-primary" onclick="acctVerifyCode(this)"><i class="fa-solid fa-check"></i> Verify</button></div></div>
+      <div class="link-step" id="stPass"><div class="link-row">
+        <div class="field"><label class="lb">2FA password</label>
+          <input class="form-control" id="acPass" type="password" autocomplete="off"/></div>
+        <button class="btn btn-primary" onclick="acctVerifyPass(this)"><i class="fa-solid fa-lock-open"></i> Login</button></div></div>
+    </div>
+  </div>
+
+  <!-- Media forwarding -->
+  <div class="card set-card" id="forwarding">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-2)"><i class="fa-solid fa-share-from-square"></i></div>
+      <div><h3>Media forwarding</h3><p>Photos, videos and files are copied to a channel / group with "Forwarded from"</p></div></div>
+    <div class="field"><label class="lb">📱 Personal account (P2P chats) → channel / group link</label>
+      <input class="form-control" id="forward_channel" type="text" maxlength="120" placeholder="https://t.me/mychannel"
+        value="{{ ('@' ~ s.forward_channel) if s.forward_channel and not s.forward_channel.startswith('-') else s.forward_channel }}"/></div>
+    <div class="field" style="margin-top:14px"><label class="lb">🤖 Bot users → channel / group link (use a different one)</label>
+      <input class="form-control" id="forward_channel_bot" type="text" maxlength="120" placeholder="https://t.me/mygroup"
+        value="{{ ('@' ~ s.forward_channel_bot) if s.forward_channel_bot and not s.forward_channel_bot.startswith('-') else s.forward_channel_bot }}"/></div>
+    <div class="hint" style="margin-top:8px">Every copy shows <b>Forwarded from</b>: full name, @username, chat ID, date and time.
+      Paste a public link (<code>https://t.me/name</code>), <code>@name</code> or the numeric <code>-100…</code> id — invite links (<code>t.me/+…</code>) can't be used.
+      Add the <b>bot</b> as admin of the bot target, and make sure your <b>linked account</b> can post in the account target. Empty = off.</div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['forward_channel','forward_channel_bot'],this)"><i class="fa-solid fa-save"></i> Save forwarding</button></div>
+  </div>
+
+  <!-- AI support -->
+  <div class="card set-card" id="ai">
+    <div class="set-head"><div class="set-ico" style="background:var(--grad-3)"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+      <div><h3>AI support (Groq)</h3><p>Automatic answers for bot users and for your P2P chats</p></div></div>
+    <div>
+      <div class="sw"><div><div class="t">AI answers bot users</div><div class="d">Same as <code>/bot onai</code> / <code>/bot offai</code>. Individual users can be switched off in their chat or with <code>/bot chat_id ignoreai</code>.</div></div>
+        <label class="toggle"><input type="checkbox" id="ai_bot_enabled" {{ 'checked' if s.ai_bot_enabled }}/><span></span></label></div>
+      <div class="sw"><div><div class="t">AI answers my P2P chats</div><div class="d">Same as <code>/account onai</code> / <code>/account offai</code>. Off by default — it answers real people from your personal account.</div></div>
+        <label class="toggle"><input type="checkbox" id="ai_account_enabled" {{ 'checked' if s.ai_account_enabled }}/><span></span></label></div>
+    </div>
+    <div class="field" style="margin-top:14px"><label class="lb">System prompt — bot users</label>
+      <textarea class="form-control" id="ai_prompt_bot" rows="5" maxlength="4000">{{ s.ai_prompt_bot }}</textarea></div>
+    <div class="field" style="margin-top:14px"><label class="lb">System prompt — P2P chats (account)</label>
+      <textarea class="form-control" id="ai_prompt_account" rows="5" maxlength="4000">{{ s.ai_prompt_account }}</textarea></div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['ai_bot_enabled','ai_account_enabled','ai_prompt_bot','ai_prompt_account'],this)">
+      <i class="fa-solid fa-save"></i> Save AI settings</button></div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:20px 0"/>
+    <div class="field"><label class="lb">Groq API keys — one per line</label>
+      <textarea class="form-control mono" id="ai_keys" rows="5" spellcheck="false" autocomplete="off" placeholder="gsk_...&#10;gsk_...">{{ ai_keys_text }}</textarea>
+      <div class="hint">Answers rotate through the keys (round robin); a key that hits its limit is skipped automatically.
+        Models: <code>{{ ai_models|join(', ') }}</code> (environment variable <code>GROQ_MODELS</code>).</div></div>
+    <div class="save-row"><button class="btn btn-primary" onclick="saveKeys(this)"><i class="fa-solid fa-key"></i> Save keys</button></div>
+  </div>
+
   <!-- Bot behaviour -->
   <div class="card set-card" id="bot">
     <div class="set-head"><div class="set-ico"><i class="fa-solid fa-robot"></i></div>
@@ -140,13 +218,15 @@
         <label class="toggle"><input type="checkbox" id="notify_reaction" {{ 'checked' if s.notify_reaction }}/><span></span></label></div>
       <div class="sw"><div><div class="t">Notify me when a user edits a message</div><div class="d">Shows the old and the new text.</div></div>
         <label class="toggle"><input type="checkbox" id="notify_edit" {{ 'checked' if s.notify_edit }}/><span></span></label></div>
+      <div class="sw"><div><div class="t">Notify the admin too</div><div class="d">Off = only the super admin gets Telegram notifications (<code>/bot killadmin</code> / <code>/bot allowadmin</code>).</div></div>
+        <label class="toggle"><input type="checkbox" id="notify_admin_role" {{ 'checked' if s.notify_admin_role }}/><span></span></label></div>
       <div class="sw"><div><div class="t">Confirm <code>/broadcast</code> in Telegram</div><div class="d">Shows a preview with Send / Cancel buttons before anything goes to your users. Recommended.</div></div>
         <label class="toggle"><input type="checkbox" id="broadcast_confirm" {{ 'checked' if s.broadcast_confirm }}/><span></span></label></div>
     </div>
     <div class="field" style="margin-top:14px;max-width:260px"><label class="lb">Broadcast delay (seconds between users)</label>
       <input class="form-control" id="broadcast_delay" type="number" step="0.01" min="0.03" max="2" value="{{ s.broadcast_delay }}"/>
       <div class="hint">0.05 ≈ 20 messages/second (Telegram's limit is about 30).</div></div>
-    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['auto_reply','auto_reply_cooldown','notify_new_message','forward_media','notify_reaction','notify_edit','broadcast_confirm','broadcast_delay'],this)">
+    <div class="save-row"><button class="btn btn-primary" onclick="saveGroup(['auto_reply','auto_reply_cooldown','notify_new_message','forward_media','notify_reaction','notify_edit','notify_admin_role','broadcast_confirm','broadcast_delay'],this)">
       <i class="fa-solid fa-save"></i> Save bot settings</button>
       <button class="btn btn-secondary" onclick="testNotify(this)"><i class="fa-solid fa-bell"></i> Send test notification</button></div>
   </div>
@@ -196,6 +276,8 @@
     <div class="sys-grid">
       <div class="sys"><b>Telegram bot</b><span class="dot {{ 'ok' if bot_ok else 'no' }}"></span>{{ 'Connected' if bot_ok else 'BOT_TOKEN missing' }}</div>
       <div class="sys"><b>Firebase</b><span class="dot {{ 'ok' if firebase_ok else 'no' }}"></span>{{ 'Configured' if firebase_ok else 'FIREBASE_URL missing' }}</div>
+      <div class="sys"><b>Firebase admin access</b><span class="dot {{ 'ok' if firebase_admin else 'no' }}"></span>{{ 'Service account — rules can be read/write false' if firebase_admin else 'FIREBASE_CREDENTIALS missing' }}</div>
+      <div class="sys"><b>Telegram API (account)</b><span class="dot {{ 'ok' if acct.configured else 'no' }}"></span>{{ 'TG_API_ID / TG_API_HASH set' if acct.configured else 'TG_API_ID / TG_API_HASH missing' }}</div>
       <div class="sys"><b>👑 Super admin Telegram chat</b><span class="dot {{ 'ok' if super_chat_ok else 'no' }}"></span>{{ 'Configured' if super_chat_ok else 'SUPER_ADMIN_CHAT_ID missing' }}</div>
       <div class="sys"><b>🛡️ Admin Telegram chat</b><span class="dot {{ 'ok' if admin_chat_ok else 'no' }}"></span>{{ 'Configured' if admin_chat_ok else 'ADMIN_CHAT_ID missing' }}</div>
       <div class="sys"><b>Panel URL</b>{{ panel_url or '— (set PANEL_URL for the "Open in Admin Panel" button)' }}</div>
@@ -252,6 +334,38 @@ window.saveGroup = async (ids, btn) => {
   }catch(e){ toast(e.message,'err'); }
   btn.disabled = false;
 };
+window.saveKeys = async btn => {
+  btn.disabled = true;
+  try{
+    const d = await api('/settings/api/ai-keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys:$('ai_keys').value})});
+    d.ok ? toast(d.count + ' key' + (d.count === 1 ? '' : 's') + ' saved','ok') : toast(d.error || 'Could not save','err',6000);
+  }catch(e){ toast(e.message,'err'); }
+  btn.disabled = false;
+};
+// ── link the personal account ──
+const post = (url, body) => api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+function acctShow(st){
+  const linked = st && st.linked;
+  $('acctLinked').style.display = linked ? 'block' : 'none';
+  $('acctForm').style.display = linked ? 'none' : 'block';
+  $('stCode').classList.toggle('open', !linked && st && st.step === 'code');
+  $('stPass').classList.toggle('open', !linked && st && st.step === 'password');
+}
+async function acctStep(btn, fn, okMsg){
+  btn.disabled = true;
+  try{
+    const d = await fn();
+    if(!d.ok) toast(d.error || 'Failed','err',7000);
+    else { if(okMsg) toast(okMsg,'ok'); }
+    acctShow(d.account);
+  }catch(e){ toast(e.message,'err'); }
+  btn.disabled = false;
+}
+window.acctSendCode = btn => acctStep(btn, () => post('/settings/api/account/send-code',{phone:$('acPhone').value}), 'OTP sent — check Telegram');
+window.acctVerifyCode = btn => acctStep(btn, async () => { const d = await post('/settings/api/account/verify-code',{code:$('acCode').value}); if(d.ok && d.account && d.account.linked){ $('acCode').value=''; $('acPhone').value=''; toast('Mobile linked','ok'); } return d; });
+window.acctVerifyPass = btn => acctStep(btn, async () => { const d = await post('/settings/api/account/verify-password',{password:$('acPass').value}); $('acPass').value=''; if(d.ok && d.account && d.account.linked) toast('Mobile linked','ok'); return d; });
+window.acctUnlink = btn => { if(!confirm('Unlink the account? The Account tab keeps its stored chats, but no new messages arrive.')) return; acctStep(btn, () => post('/settings/api/account/unlink'), 'Unlinked'); };
+acctShow({linked: {{ 'true' if acct.linked else 'false' }}, step: '{{ acct.step }}'});
 window.testNotify = async btn => {
   btn.disabled = true;
   try{
