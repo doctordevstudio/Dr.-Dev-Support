@@ -16,6 +16,9 @@ What it does
   the message stays and gets `tg_deleted` (the panel shows 🚫).
 * Username changes of P2P users are detected and only the super admin is told.
 * Optional AI answers (Groq) for these chats — off until `/account onai`.
+* Redeploy-safe: nothing is fetched twice. The history import never overwrites stored data, and
+  after every start a CATCH-UP fetches only what arrived while the server was down (newer than the
+  last stored message of each chat) and forwards that media once.
 
 Everything runs on one asyncio loop in its own thread; the Flask / bot threads call the
 small synchronous wrappers at the bottom.
@@ -41,6 +44,7 @@ except Exception:                       # pragma: no cover
 
 SESSION_PATH = "private/account/session"
 IMPORT_FLAG = "private/account/imported"
+ALIVE_PATH = "private/account/alive_ts"          # heartbeat: when this server last ran
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 
 
@@ -193,7 +197,17 @@ async def _connect(sess: str) -> bool:
         print(f"[ACCOUNT] dialogs: {e}")
     if not fb.get(IMPORT_FLAG):
         fb.bg(_import_history)
+    else:
+        fb.bg(_catch_up)                              # only what arrived while we were offline
+    asyncio.ensure_future(_heartbeat())
     return True
+
+
+async def _heartbeat():
+    """Remember when we were last alive, so a restart knows how long the gap was."""
+    while _client is not None:
+        fb.bg(fb.put, ALIVE_PATH, int(time.time()))
+        await asyncio.sleep(60)
 
 
 def _phone(p: str) -> str:
@@ -375,8 +389,27 @@ def _meta(cid: str) -> dict:
     return _tg().get_meta(cid)
 
 
-def _process_message(info: dict, imported: bool = False):
-    """Store one P2P message (worker thread). Imported history never triggers anything else."""
+_seen_msgs = {}                 # (uid, id, out) -> 1 : the same message is never handled twice per run
+
+
+def _first_time(info: dict) -> bool:
+    k = (info["uid"], info["id"], bool(info["out"]))
+    with _state_lock:
+        if k in _seen_msgs:
+            return False
+        _seen_msgs[k] = 1
+        if len(_seen_msgs) > 20000:
+            for old in list(_seen_msgs)[:5000]:
+                _seen_msgs.pop(old, None)
+    return True
+
+
+def _process_message(info: dict, imported: bool = False, catchup: bool = False):
+    """Store one P2P message (worker thread).
+    imported: old history — stored quietly, never overwrites, triggers nothing.
+    catchup:  arrived while we were offline — handled like a live message, except no AI answer."""
+    if not _first_time(info):
+        return
     tg = _tg()
     uid, cid = info["uid"], cid_of(info["uid"])
     out = info["out"]
@@ -420,7 +453,7 @@ def _process_message(info: dict, imported: bool = False):
     if not imported:
         fb.log_event("message_in" if not out else "message_out", scope="super", actor="system",
                      chat_id=cid, msg_type=data["type"], source="account")
-    if not out and not imported and text:
+    if not out and not imported and not catchup and text:
         _ai_answer(cid, uid, info, hist or [])
 
 
@@ -607,12 +640,37 @@ def _import_history(max_dialogs: int = 60, per_chat: int = 25):
         print(f"[ACCOUNT] import: {e}")
 
 
+def _info_of(msg, user) -> dict:
+    info = {"uid": user.id, "name": _full_name(user), "username": _username_of(user),
+            "out": bool(msg.out), "id": msg.id, "ts": int(msg.date.timestamp()),
+            "time": _stamp(msg.date), "text": msg.message or "",
+            "reply_id": msg.reply_to.reply_to_msg_id if msg.reply_to else None}
+    info["type"], info["file_name"] = _kind(msg)
+    info["size"] = getattr(msg.file, "size", 0) if msg.file else 0
+    return info
+
+
+def _stored_ids(cid: str) -> set:
+    """Telegram ids already stored for a chat (one cheap keys-only request)."""
+    ids = set()
+    for k in fb.shallow(f"support/{cid}/messages"):
+        k = str(k).replace("admin_", "")
+        if k.isdigit():
+            ids.add(int(k))
+    return ids
+
+
 async def _import_async(max_dialogs: int, per_chat: int):
+    """One-off import. Messages that are already stored are skipped, so a repeated import
+    (e.g. a redeploy in the middle of the first one) can never overwrite reactions, edit
+    history or 🚫 marks."""
+    loop = asyncio.get_event_loop()
     batch = []
     async for d in _client.iter_dialogs(limit=max_dialogs):
         if not d.is_user or not _is_person(d.entity):
             continue
         user = d.entity
+        have = await loop.run_in_executor(None, _stored_ids, cid_of(user.id))
         try:
             msgs = await _client.get_messages(user, limit=per_chat)
         except errors.FloodWaitError:
@@ -620,18 +678,60 @@ async def _import_async(max_dialogs: int, per_chat: int):
         except Exception:
             continue
         for msg in reversed(msgs):
-            if msg.action is not None:
+            if msg.action is not None or msg.id in have:
                 continue
-            info = {"uid": user.id, "name": _full_name(user), "username": _username_of(user),
-                    "out": bool(msg.out), "id": msg.id, "ts": int(msg.date.timestamp()),
-                    "time": _stamp(msg.date), "text": msg.message or "",
-                    "reply_id": msg.reply_to.reply_to_msg_id if msg.reply_to else None}
-            info["type"], info["file_name"] = _kind(msg)
-            info["size"] = getattr(msg.file, "size", 0) if msg.file else 0
-            batch.append(info)
+            batch.append(_info_of(msg, user))
         await asyncio.sleep(0.4)                      # stay far away from flood limits
-    for info in batch:
-        _process_message(info, imported=True)
+    for info in batch:                                # Firebase calls never block the Telegram loop
+        await loop.run_in_executor(None, _process_message, info, True)
+
+
+# ── catch-up after a restart / redeploy ──────────────────────────────────────
+def _catch_up():
+    if _client is None:
+        return
+    try:
+        _run(_catch_up_async(), timeout=900)
+        fb.put(ALIVE_PATH, int(time.time()))
+    except Exception as e:
+        print(f"[ACCOUNT] catch-up: {e}")
+
+
+async def _catch_up_async(max_dialogs: int = 60):
+    """Fetch ONLY what is newer than the last stored message of each chat. Messages from the
+    downtime are stored like live ones (unread, media forwarded once, no AI answer); anything
+    older is stored quietly. Already stored messages are never touched."""
+    loop = asyncio.get_event_loop()
+    now = int(time.time())
+    alive = int(await loop.run_in_executor(None, fb.get, ALIVE_PATH) or 0)
+    since = alive if alive else now - 6 * 3600              # start of the downtime
+    since = max(since, now - 7 * 86400) - 300
+    work = []
+    async for d in _client.iter_dialogs(limit=max_dialogs):
+        if not d.is_user or not _is_person(d.entity):
+            continue
+        user = d.entity
+        have = await loop.run_in_executor(None, _stored_ids, cid_of(user.id))
+        last = max(have) if have else 0
+        try:
+            msgs = await _client.get_messages(user, limit=100 if last else 25, min_id=last)
+        except errors.FloodWaitError:
+            break
+        except Exception:
+            continue
+        for msg in reversed(msgs):                          # oldest first
+            if msg.action is not None or msg.id in have:
+                continue
+            info = _info_of(msg, user)
+            work.append((msg, info, info["ts"] >= since))
+        await asyncio.sleep(0.4)
+    for msg, info, recent in work:
+        await loop.run_in_executor(None, _process_message, info, not recent, recent)
+        if recent and not info["out"] and info["type"] and not msg.sticker:
+            await _forward_media(msg, info)                 # once: it was not stored before
+            await asyncio.sleep(0.5)
+    if work:
+        fb.log_event("account_catchup", scope="super", actor="system", messages=len(work))
 
 
 # ── actions used by the panel / bot (synchronous wrappers) ───────────────────
