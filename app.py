@@ -8,6 +8,7 @@ Two panel accounts, both configured ONLY through environment variables:
 The personal Telegram account (Account tab, P2P chats, linking) is SUPER ADMIN ONLY: every
 route that takes a chat id answers 404 to the admin for P2P chats.
 """
+import io
 import math
 import mimetypes
 import re
@@ -22,7 +23,7 @@ from urllib.parse import quote
 import requests
 from flask import (
     Flask, Response, abort, jsonify, redirect, render_template, request,
-    session, url_for, flash,
+    send_file, session, url_for, flash,
 )
 from werkzeug.exceptions import HTTPException
 
@@ -305,9 +306,17 @@ def _norm(s) -> str:
 
 
 def _tab_arg() -> str:
-    """'bot' | 'account'. Only the super admin can ever get 'account'."""
-    tab = request.args.get("tab", "bot")
-    return "account" if (tab == "account" and current_role() == "super") else "bot"
+    """'bot' | 'account'. Only the super admin can ever get 'account'.
+    The last tab used is remembered, so coming back from a chat (or from another page)
+    lands on the same tab again instead of jumping to Bot."""
+    if current_role() != "super":
+        return "bot"
+    tab = request.args.get("tab")
+    if tab in ("bot", "account"):
+        session["tab"] = tab
+    else:
+        tab = session.get("tab", "bot")
+    return "account" if tab == "account" else "bot"
 
 
 def _load_all_chats(tab: str = "bot"):
@@ -624,13 +633,13 @@ def _stream_telegram_file(cid, mid, as_attachment):
             data, ctype, name = account.download(account.uid_of(cid), int(m.get("tg_id") or 0))
         except account.AccountError as e:
             return str(e), 404
-        headers = {"Cache-Control": "private, max-age=3600"}
-        if as_attachment:
-            fname = (m.get("file_name") or name or mid).replace('"', "").replace("\r", "").replace("\n", "")
-            headers["Content-Disposition"] = (
-                f"attachment; filename=\"{fname.encode('ascii', 'ignore').decode() or 'file'}\"; "
-                f"filename*=UTF-8''{quote(fname)}")
-        return Response(data, mimetype=ctype, headers=headers)
+        fname = (m.get("file_name") or name or mid).replace('"', "").replace("\r", "").replace("\n", "")
+        if as_attachment and "." not in fname:
+            fname += mimetypes.guess_extension((ctype or "").split(";")[0]) or ""
+        # send_file answers Range requests, which videos need (seeking, Safari / iOS playback)
+        return send_file(io.BytesIO(data), mimetype=ctype or "application/octet-stream",
+                         as_attachment=as_attachment, download_name=fname or "file",
+                         conditional=True, max_age=3600)
     file_id = m.get("file_id")
     url = tg.refresh_file_url(file_id) if file_id else ""
     if not url:
