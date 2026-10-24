@@ -36,24 +36,65 @@ KEYS_TTL = 20.0
 _KEY_RE = re.compile(r"^[A-Za-z0-9_\-]{16,200}$")
 
 
-# ── Short in-memory conversation memory (no Firebase read on the hot path) ──
+# ── Conversation context: the last 10 messages of the chat go to the AI ──────
+# Both sides are remembered — the customer, the AI, AND the human admins' own replies — so the
+# model always sees what was really said. After a restart the memory is rebuilt from Firebase.
+HISTORY_N = 10
 _mem = {}
 _mem_lock = threading.Lock()
 
 
 def remember(cid: str, role: str, text: str):
+    """role: 'user' (the other person) | 'assistant' (anything WE sent: AI, admin, super admin)."""
+    text = str(text or "").strip()
+    if not text:
+        return
     with _mem_lock:
         d = _mem.setdefault(str(cid), [])
-        d.append({"role": role, "content": str(text)[:1500]})
-        del d[:-10]
+        d.append({"role": role, "content": text[:1500]})
+        del d[:-(HISTORY_N * 2)]
         if len(_mem) > 2000:                       # keep memory bounded
             for k in list(_mem)[:500]:
                 _mem.pop(k, None)
 
 
-def recall(cid: str) -> list:
+def recall(cid: str, n: int = HISTORY_N) -> list:
     with _mem_lock:
-        return list(_mem.get(str(cid), []))
+        return list(_mem.get(str(cid), []))[-n:]
+
+
+def _label(m: dict) -> str:
+    txt = (m.get("text") or m.get("caption") or "").strip()
+    if txt:
+        return txt
+    return {"photo": "[photo]", "video": "[video]", "document": "[file]"}.get(m.get("type"), "")
+
+
+def _seed_from_firebase(cid: str, exclude: str = ""):
+    ok, data = fb.query_by_ts(f"support/{cid}/messages", limit_last=HISTORY_N + 3)
+    if not ok:
+        return
+    rows = [m for m in (data or {}).values()
+            if isinstance(m, dict) and str(m.get("msg_id", "")) != str(exclude)
+            and not m.get("deleted") and not m.get("hidden_admin")]
+    rows.sort(key=lambda m: m.get("ts", 0))
+    with _mem_lock:
+        if str(cid) in _mem:                        # somebody filled it meanwhile
+            return
+        _mem[str(cid)] = [
+            {"role": "user" if m.get("from") == "user" else "assistant", "content": _label(m)[:1500]}
+            for m in rows[-HISTORY_N:] if _label(m)
+        ]
+
+
+def context(cid: str, exclude: str = "") -> list:
+    """The last 10 messages BEFORE the current question, oldest first.
+    `exclude` = the stored id of the current message (it may already be in Firebase)."""
+    with _mem_lock:
+        known = str(cid) in _mem
+    if not known:
+        _seed_from_firebase(cid, exclude)
+    return recall(cid, HISTORY_N)
 
 
 # ── Keys ─────────────────────────────────────────────────────────────────────
@@ -166,7 +207,7 @@ def ask(question: str, system_prompt: str, history=None, context: str = ""):
     if context:
         sys_txt = f"{sys_txt}\n\n{context}".strip()
     messages = [{"role": "system", "content": sys_txt}] if sys_txt else []
-    for h in (history or [])[-8:]:
+    for h in (history or [])[-HISTORY_N:]:
         if h.get("content"):
             messages.append({"role": h["role"], "content": str(h["content"])[:1500]})
     messages.append({"role": "user", "content": question[:3000]})
