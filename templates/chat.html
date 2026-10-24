@@ -3,7 +3,7 @@
 
 {% block page_title %}
   <div style="display:flex;align-items:center;gap:12px">
-    <a href="{{ url_for('chats') }}" style="color:var(--muted);text-decoration:none;
+    <a href="{{ url_for('chats', tab='account') if meta.source == 'account' else url_for('chats') }}" style="color:var(--muted);text-decoration:none;
        padding:6px;border-radius:8px;transition:all .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background=''">
       <i class="fa-solid fa-arrow-left"></i>
     </a>
@@ -659,7 +659,13 @@ async function loadOlder(){
 function loadMedia(placeholder, kind, mid){
   placeholder.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading…';
   const url = `/chat/${CID}/file/${encodeURIComponent(mid)}/view`;
-  const fail = () => { placeholder.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Failed to load — click to retry'; };
+  const fail = async () => {
+    let why = '';
+    try{ const r = await fetch(url, {headers: {Range: 'bytes=0-0'}}); if(!r.ok) why = (await r.text()).slice(0, 120); }catch(_){}
+    placeholder.textContent = '';
+    placeholder.appendChild(Object.assign(document.createElement('i'), {className: 'fa-solid fa-triangle-exclamation'}));
+    placeholder.appendChild(document.createTextNode(' Failed to load' + (why ? ' — ' + why : '') + ' — click to retry'));
+  };
   if(kind === 'image'){
     const img = document.createElement('img');
     img.onload = () => { placeholder.replaceWith(img); };
