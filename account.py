@@ -412,12 +412,16 @@ def _process_message(info: dict, imported: bool = False):
         # username / name change?  (only the super admin is told)
         if not imported:
             _check_identity(cid, uid, info["name"], info["username"], meta)
+    # the AI's context: remember both sides (also my own messages typed on the phone)
+    hist = ai.context(cid, exclude=key) if (not out and not imported) else None
+    if not imported:
+        ai.remember(cid, "assistant" if out else "user", text if (text and text != "[unsupported message]") else f"[{data['type']}]")
     tg.store_message(cid, key, data, extra=extra, count_unread=(not out and not imported))
     if not imported:
         fb.log_event("message_in" if not out else "message_out", scope="super", actor="system",
                      chat_id=cid, msg_type=data["type"], source="account")
     if not out and not imported and text:
-        _ai_answer(cid, uid, info)
+        _ai_answer(cid, uid, info, hist or [])
 
 
 def _resolve_key(cid: str, tg_id) -> str:
@@ -437,7 +441,7 @@ def _check_identity(cid, uid, name, username, meta):
 
 
 # ── AI for P2P chats ─────────────────────────────────────────────────────────
-def _ai_answer(cid: str, uid: int, info: dict):
+def _ai_answer(cid: str, uid: int, info: dict, hist: list):
     tg = _tg()
     try:
         s = settings.load()
@@ -449,9 +453,7 @@ def _ai_answer(cid: str, uid: int, info: dict):
         text = info["text"].strip()
         if not text:
             return
-        hist = ai.recall(cid)
-        ai.remember(cid, "user", text)
-        answer = ai.ask(text, s.get("ai_prompt_account") or "", history=hist,
+        answer = ai.ask(text, s.get("ai_prompt_account") or "", history=hist,     # last 10 messages
                         context=f"The other person's name: {info['name']}")
         if not answer:
             return
