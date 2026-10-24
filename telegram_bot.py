@@ -1391,9 +1391,12 @@ if bot:
         except Exception:
             pass
 
-    def _ai_reply(cid: str, uname: str, un: str, text: str) -> bool:
-        """AI answer for a bot user. False -> nothing was sent (caller falls back to auto-reply)."""
+    def _ai_reply(cid: str, uname: str, un: str, text: str, mid: str = "", label: str = "") -> bool:
+        """AI answer for a bot user. False -> nothing was sent (caller falls back to auto-reply).
+        The AI always gets the last 10 messages of this chat (both sides, incl. human replies)."""
         try:
+            hist = ai.context(cid, exclude=mid)              # the 10 messages BEFORE this one
+            ai.remember(cid, "user", text or label)          # remembered even when the AI is off
             s = settings.load()
             if not s.get("ai_bot_enabled", True) or not (text or "").strip():
                 return False
@@ -1401,8 +1404,6 @@ if bot:
             if meta.get("ai_off") or meta.get("blocked") or not ai.available():
                 return False
             fb.bg(_typing, cid)
-            hist = ai.recall(cid)
-            ai.remember(cid, "user", text)
             answer = ai.ask(text, s.get("ai_prompt_bot") or "", history=hist,
                             context=f"Customer name: {uname}")
             if not answer:
@@ -1427,9 +1428,9 @@ if bot:
         ai.record("bot", cid, cid, uname, un, question, answer)
         fb.log_event("ai_answered", chat_id=cid, source="bot")
 
-    def _respond(cid: str, uname: str, un: str, text: str):
+    def _respond(cid: str, uname: str, un: str, text: str, mid: str = "", label: str = ""):
         """What the USER sees comes first and never waits for storage / notifications."""
-        if not _ai_reply(cid, uname, un, text):
+        if not _ai_reply(cid, uname, un, text, mid, label):
             _maybe_auto_reply(cid)
 
     def _persist_incoming(msg, cid, mid, data, kind, notify_text, file_id="", file_name=""):
@@ -1473,7 +1474,7 @@ if bot:
             "read": False, "delivered": True, "edited": False, "deleted": False,
         }
         fb.bg(_persist_incoming, msg, cid, mid, data, "text", msg.text)      # in parallel …
-        _respond(cid, uname, un, msg.text or "")                              # … with the answer
+        _respond(cid, uname, un, msg.text or "", mid)                         # … with the answer
 
     def _handle_media(msg, kind: str):
         cid = str(msg.chat.id)
@@ -1511,7 +1512,7 @@ if bot:
             data["file_name"] = file_name
         fb.bg(_persist_incoming, msg, cid, mid, data, kind, caption or f"[{kind}]",
               file_id, file_name or "")
-        _respond(cid, uname, un, caption)
+        _respond(cid, uname, un, caption, mid, f"[{kind}]")
 
     @bot.message_handler(content_types=["photo"])
     def handle_photo(msg):
@@ -1631,6 +1632,7 @@ def _acct_reply_ctx(chat_id: str, reply_key: str):
 
 
 def _acct_store(chat_id: str, res: dict, text: str, ftype="text", fname="", rinfo=None) -> dict:
+    ai.remember(chat_id, "assistant", text or f"[{ftype}]")
     data = account._out_record(chat_id, res, text, sent_by=_sender(), ftype=ftype, fname=fname, rinfo=rinfo)
     store_message(chat_id, data["msg_id"], data, extra={f"acct_idx/{res['id']}": chat_id})
     update_meta(chat_id, unread=0)
@@ -1669,6 +1671,7 @@ def admin_reply(chat_id: str, text: str, reply_to: str = "") -> dict:
         }
         if rinfo:
             data["reply_to"] = rinfo
+        ai.remember(chat_id, "assistant", text)
         saved = fb.put(f"support/{chat_id}/messages/admin_{mid}", data)
         fb.patch(
             f"support/{chat_id}/meta",
@@ -1747,6 +1750,7 @@ def admin_send_file(chat_id: str, file_bytes: bytes, filename: str, mime_type: s
         else:
             m = bot.send_document(chat_id, f, caption=cap, parse_mode="HTML", **kw)
             file_id, ftype = m.document.file_id, "document"
+        ai.remember(chat_id, "assistant", caption or f"[{ftype}]")
         return _store_admin_media(chat_id, m, ftype, file_id, filename, caption, rinfo)
     except Exception as e:
         fb.log_event("bot_error", chat_id=chat_id, error=str(e))
@@ -1770,6 +1774,7 @@ def admin_send_media_by_id(chat_id: str, ftype: str, file_id: str, filename: str
         else:
             m = bot.send_document(chat_id, file_id, caption=cap, parse_mode="HTML", **kw)
             new_id = m.document.file_id
+        ai.remember(chat_id, "assistant", caption or f"[{ftype}]")
         return _store_admin_media(chat_id, m, ftype, new_id, filename, caption, rinfo)
     except Exception as e:
         fb.log_event("bot_error", chat_id=chat_id, error=str(e))
