@@ -1,4 +1,4 @@
-"""
+      # one retry for transient network errors"""
 account.py — the super admin's PERSONAL Telegram account (MTProto via Telethon).
 
 What it does
@@ -1027,3 +1027,4 @@ def download(uid: int, msg_id: int):
             raise
         print(f"[ACCOUNT] download retry ({e})")
         return _run(go(), timeout=300)              # one retry for transient network errors
+
