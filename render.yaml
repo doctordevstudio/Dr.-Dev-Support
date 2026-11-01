@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: support-bot
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: SUPER_ADMIN_CHAT_ID
+        sync: false
+      - key: ADMIN_CHAT_ID
+        sync: false
+      - key: FIREBASE_URL
+        sync: false
+      - key: FIREBASE_SECRET
+        sync: false
+      - key: FIREBASE_CREDENTIALS
+        sync: false
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: GROQ_MODELS
+        value: openai/gpt-oss-120b,openai/gpt-oss-20b
+      - key: SUPER_ADMIN_USERNAME
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PANEL_URL
+        sync: false
+      - key: PANEL_NAME
+        value: Support Panel
