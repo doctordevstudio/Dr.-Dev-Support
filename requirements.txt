@@ -1,0 +1,7 @@
+Flask
+gunicorn
+pyTelegramBotAPI
+requests
+python-dotenv
+telethon
+google-auth

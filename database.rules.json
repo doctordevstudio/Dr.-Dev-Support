@@ -1,0 +1,30 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "support": {
+      "$chat_id": {
+        "messages": {
+          ".indexOn": [
+            "ts"
+          ]
+        }
+      }
+    },
+    "logs": {
+      ".indexOn": [
+        "ts"
+      ]
+    },
+    "logs_admin": {
+      ".indexOn": [
+        "ts"
+      ]
+    },
+    "ai_history": {
+      ".indexOn": [
+        "ts"
+      ]
+    }
+  }
+}
